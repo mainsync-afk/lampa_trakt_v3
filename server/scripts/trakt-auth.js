@@ -9,6 +9,12 @@ import { repo } from '../src/lib/repo.js';
 const TRAKT_BASE = 'https://api.trakt.tv';
 const CLIENT_ID = process.env.TRAKT_CLIENT_ID;
 const CLIENT_SECRET = process.env.TRAKT_CLIENT_SECRET;
+const USER_AGENT = 'lampa-trakt-proxy/0.2.1 (+https://github.com/mainsync-afk/lampa_trakt_v3)';
+const COMMON_HEADERS = {
+    'Content-Type': 'application/json',
+    'Accept': 'application/json',
+    'User-Agent': USER_AGENT
+};
 
 if (!CLIENT_ID || !CLIENT_SECRET) {
     console.error('Set TRAKT_CLIENT_ID and TRAKT_CLIENT_SECRET in .env');
@@ -18,12 +24,12 @@ if (!CLIENT_ID || !CLIENT_SECRET) {
 async function deviceCode() {
     const r = await fetch(TRAKT_BASE + '/oauth/device/code', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: COMMON_HEADERS,
         body: JSON.stringify({ client_id: CLIENT_ID })
     });
     if (!r.ok) {
         const text = await r.text().catch(() => '');
-        throw new Error('device/code: ' + r.status + ' ' + text);
+        throw new Error('device/code: ' + r.status + ' ' + text.slice(0, 200));
     }
     return r.json();
 }
@@ -31,7 +37,7 @@ async function deviceCode() {
 async function pollToken(code) {
     const r = await fetch(TRAKT_BASE + '/oauth/device/token', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: COMMON_HEADERS,
         body: JSON.stringify({
             code,
             client_id: CLIENT_ID,

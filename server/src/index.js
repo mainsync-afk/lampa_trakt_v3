@@ -8,7 +8,7 @@ import foldersRoutes from './routes/folders.js';
 import cardRoutes from './routes/card.js';
 import syncRoutes from './routes/sync.js';
 
-const VERSION = '0.2.0';
+const VERSION = '0.2.1';
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || '0.0.0.0';
 

@@ -9,6 +9,8 @@ const TRAKT_BASE = 'https://api.trakt.tv';
 const CLIENT_ID = process.env.TRAKT_CLIENT_ID;
 const CLIENT_SECRET = process.env.TRAKT_CLIENT_SECRET;
 const REFRESH_THRESHOLD_MS = 24 * 60 * 60 * 1000; // refresh за день до истечения
+// CF у Trakt режет запросы без честного UA — даём явный.
+const USER_AGENT = 'lampa-trakt-proxy/0.2.1 (+https://github.com/mainsync-afk/lampa_trakt_v3)';
 
 let _auth = null;
 let _refreshPromise = null;
@@ -27,7 +29,11 @@ async function refreshToken() {
         }
         const res = await fetch(TRAKT_BASE + '/oauth/token', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'User-Agent': USER_AGENT
+            },
             body: JSON.stringify({
                 refresh_token: auth.refresh_token,
                 client_id: CLIENT_ID,
@@ -78,6 +84,8 @@ async function traktFetch(pathPart, opts = {}) {
         'trakt-api-version': '2',
         'trakt-api-key': CLIENT_ID,
         'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'User-Agent': USER_AGENT,
         ...(opts.headers || {})
     };
     let res = await fetch(url, { ...opts, headers });

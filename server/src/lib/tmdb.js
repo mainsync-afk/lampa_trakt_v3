@@ -7,6 +7,7 @@ const TMDB_IMG = 'https://image.tmdb.org/t/p';
 const TMDB_KEY = process.env.TMDB_API_KEY;
 const TMDB_LANG = process.env.TMDB_LANG || 'ru-RU';
 const TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+const USER_AGENT = 'lampa-trakt-proxy/0.2.1';
 
 let _cache = null;
 
@@ -31,7 +32,12 @@ function isFresh(entry) {
 async function fetchOne(type, tmdbId) {
     const method = type === 'movie' ? 'movie' : 'tv';
     const url = `${TMDB_BASE}/${method}/${tmdbId}?api_key=${TMDB_KEY}&language=${encodeURIComponent(TMDB_LANG)}`;
-    const res = await fetch(url);
+    const res = await fetch(url, {
+        headers: {
+            'Accept': 'application/json',
+            'User-Agent': USER_AGENT
+        }
+    });
     if (res.status === 404) return null; // карточки нет в TMDB — graceful
     if (!res.ok) throw new Error('TMDB ' + method + '/' + tmdbId + ' -> ' + res.status);
     return res.json();
