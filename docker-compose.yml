@@ -1,0 +1,16 @@
+services:
+  server:
+    build: ./server
+    container_name: lampa-trakt-server
+    restart: unless-stopped
+    ports:
+      # хост:контейнер. На VPS наружу торчит 8787, внутри контейнер слушает 3000.
+      - "8787:3000"
+    volumes:
+      # Снапшот и токены живут в volumes, чтобы пережить пересборку контейнера.
+      - ./data:/app/data
+      - ./config:/app/config
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
