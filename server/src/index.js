@@ -2,13 +2,14 @@
 
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
+import compress from '@fastify/compress';
 import * as syncEngine from './sync/index.js';
 import healthRoutes from './routes/health.js';
 import foldersRoutes from './routes/folders.js';
 import cardRoutes from './routes/card.js';
 import syncRoutes from './routes/sync.js';
 
-const VERSION = '0.2.1';
+const VERSION = '0.2.2';
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || '0.0.0.0';
 
@@ -20,6 +21,12 @@ app.appVersion = VERSION;
 await app.register(cors, {
     origin: true,
     methods: ['GET', 'POST', 'OPTIONS']
+});
+
+// gzip-сжатие ответов >= 1KB. Smart-TV всё разжимают автоматически.
+await app.register(compress, {
+    encodings: ['gzip', 'br', 'deflate'],
+    threshold: 1024
 });
 
 await syncEngine.init(app.log);
