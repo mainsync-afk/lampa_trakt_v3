@@ -107,17 +107,38 @@ async function getJson(pathPart, opts = {}) {
     return r.json();
 }
 
+async function postJson(pathPart, body) {
+    const r = await traktFetch(pathPart, {
+        method: 'POST',
+        body: JSON.stringify(body)
+    });
+    if (!r.ok) {
+        const text = await r.text().catch(() => '');
+        throw new Error('Trakt POST ' + pathPart + ' -> ' + r.status + ' ' + text.slice(0, 200));
+    }
+    try { return await r.json(); } catch (_) { return {}; }
+}
+
 export const trakt = {
     fetch: traktFetch,
 
+    // read
     lastActivities: () => getJson('/sync/last_activities'),
-
     watchlist: (type) => getJson(`/sync/watchlist/${type}?extended=full`),
     watched: (type) => getJson(`/sync/watched/${type}?extended=full`),
     collection: (type) => getJson(`/sync/collection/${type}?extended=full`),
-
     lists: () => getJson('/users/me/lists'),
-    listItems: (listId) => getJson(`/users/me/lists/${listId}/items?type=show,movie&limit=2000&extended=full`)
+    listItems: (listId) => getJson(`/users/me/lists/${listId}/items?type=show,movie&limit=2000&extended=full`),
+
+    // write — body shape: { movies: [{ids: {tmdb}}] } или { shows: [...] }
+    addToWatchlist:      (body) => postJson('/sync/watchlist', body),
+    removeFromWatchlist: (body) => postJson('/sync/watchlist/remove', body),
+    addToHistory:        (body) => postJson('/sync/history', body),
+    removeFromHistory:   (body) => postJson('/sync/history/remove', body),
+    addToCollection:     (body) => postJson('/sync/collection', body),
+    removeFromCollection:(body) => postJson('/sync/collection/remove', body),
+    addToList:           (listId, body) => postJson(`/users/me/lists/${listId}/items`, body),
+    removeFromList:      (listId, body) => postJson(`/users/me/lists/${listId}/items/remove`, body)
 };
 
 export { ensureFreshAuth, refreshToken };
