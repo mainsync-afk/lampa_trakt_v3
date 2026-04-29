@@ -8,6 +8,7 @@ RUN npm install --omit=dev
 
 # Копируем исходники
 COPY src ./src
+COPY scripts ./scripts
 
 # Создаём папки под runtime-данные (volume замаунтит сверху)
 RUN mkdir -p /app/data /app/config
