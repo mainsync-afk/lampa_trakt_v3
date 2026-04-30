@@ -4,6 +4,7 @@
 import { trakt } from '../lib/trakt.js';
 import { repo } from '../lib/repo.js';
 import { getSnapshot, triggerBackgroundSync } from '../sync/index.js';
+import { resolveShowByTmdb, invalidateShowCache } from '../lib/resolve.js';
 
 export default async function (app) {
     app.post('/api/episode/watch', async (req, reply) => {
@@ -26,8 +27,28 @@ export default async function (app) {
         if (!snap) return reply.code(503).send({ ok: false, error: 'no snapshot' });
 
         const k = 'show:' + tmdb;
-        const card = snap.cards?.[k];
-        if (!card) return reply.code(404).send({ ok: false, error: 'show not found in snapshot' });
+        let card = snap.cards?.[k];
+
+        // Если карточки нет — on-demand: резолвим trakt_id, шлём write напрямую,
+        // НЕ сохраняем в snapshot (через 5 сек background sync подхватит реальное состояние).
+        if (!card) {
+            try {
+                const resolved = await resolveShowByTmdb(tmdb);
+                const body = {
+                    shows: [{
+                        ids: { tmdb, trakt: resolved.trakt_id },
+                        seasons: [{ number: season, episodes: [{ number: episode }] }]
+                    }]
+                };
+                if (watched) await trakt.addToHistory(body);
+                else         await trakt.removeFromHistory(body);
+                invalidateShowCache(tmdb);
+                triggerBackgroundSync(200);
+                return { ok: true, action: watched ? 'added' : 'removed', on_demand: true };
+            } catch (err) {
+                return reply.code(500).send({ ok: false, error: 'on-demand: ' + String(err.message || err) });
+            }
+        }
 
         // Optimistic update episodes_watched
         if (!card.progress) card.progress = {};

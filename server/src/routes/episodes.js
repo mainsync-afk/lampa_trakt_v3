@@ -3,6 +3,7 @@
 // Lampa.Timeline.update.
 
 import { getSnapshot } from '../sync/index.js';
+import { resolveShowByTmdb } from '../lib/resolve.js';
 
 export default async function (app) {
     app.get('/api/show/:tmdb/episodes', async (req, reply) => {
@@ -15,13 +16,34 @@ export default async function (app) {
         if (!snap) return reply.code(503).send({ ok: false, error: 'no snapshot' });
 
         const card = snap.cards?.['show:' + tmdb];
+        // Если карточки нет в snapshot — on-demand resolve через Trakt search.
+        // Это покрывает случай когда юзер открыл шоу из Lampa-каталога, которое
+        // не в его Trakt-картотеке (не watched, не watchlist, etc).
         if (!card) {
-            return {
-                ok: true,
-                tmdb,
-                original_name: null,
-                episodes: []
-            };
+            try {
+                const resolved = await resolveShowByTmdb(tmdb);
+                const ea = resolved.episodes_aired || {};
+                const episodes = Object.entries(ea).map(([key, watched_at]) => {
+                    const m = key.match(/^S(\d+)E(\d+)$/);
+                    if (!m) return null;
+                    return {
+                        season: Number(m[1]),
+                        episode: Number(m[2]),
+                        watched: watched_at !== null,
+                        watched_at: watched_at || null
+                    };
+                }).filter(Boolean);
+                return {
+                    ok: true,
+                    tmdb,
+                    original_name: resolved.original_name || null,
+                    episodes,
+                    on_demand: true
+                };
+            } catch (err) {
+                req.log?.warn({ err: String(err.message || err), tmdb }, 'on-demand resolve failed');
+                return reply.code(404).send({ ok: false, error: 'show not found' });
+            }
         }
 
         // Возвращаем ВСЕ aired эпизоды с watched-флагом (для regenerate всех hashes
