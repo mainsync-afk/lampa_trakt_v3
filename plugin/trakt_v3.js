@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.1.1';
+    var VERSION = '0.1.2';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -235,6 +235,23 @@
         try { Lampa.Noty.show(String(text || '')); } catch (_) {}
     }
 
+    // Если открыт наш Activity — перерисовываем его, чтобы новое состояние
+    // карточки сразу было видно в рядах. Lampa.Activity.replace перезапускает
+    // create() в текущей странице без push в стек.
+    function refreshScreenIfActive() {
+        try {
+            var act = Lampa.Activity.active();
+            if (act && act.component === COMPONENT) {
+                Lampa.Activity.replace({
+                    url: '',
+                    title: Lampa.Lang.translate('trakt_v3_screen_title'),
+                    component: COMPONENT,
+                    page: 1
+                });
+            }
+        } catch (_) {}
+    }
+
     function handleSidebarTap(item, object) {
         // continue/returning — индикаторы, на тап ничего не делаем
         if (!item.isToggle) return;
@@ -259,6 +276,11 @@
                     var msg = added ? (item.notifyAdded || (item.name + ': добавлено'))
                                     : (item.notifyRemoved || (item.name + ': убрано'));
                     notify(msg);
+                    // Обновляем подписи sidebar (если юзер сразу снова откроет sidebar
+                    // на той же карточке — увидит свежие ☐/☑).
+                    updateAllOurPluginNames(object);
+                    // Перерисовываем активный экран чтобы карточка сразу переместилась.
+                    refreshScreenIfActive();
                 } else {
                     notify('Ошибка: ' + ((resp && resp.error) || 'unknown'));
                 }
@@ -270,102 +292,69 @@
     }
 
     // ────────────────────────────────────────────────────────────────────
-    // patchSelectShowForPicked — добавляет picked: true/false для наших items
-    // когда Lampa открывает sidebar-меню. Native picked рисует ✓ справа.
-    // ────────────────────────────────────────────────────────────────────
-    function patchSelectShowForPicked() {
-        if (!Lampa.Select || typeof Lampa.Select.show !== 'function') return;
-        if (Lampa.Select.show.__trakt_v3_patched) return;
-        var orig = Lampa.Select.show;
-        var patched = function (params) {
-            try {
-                if (params && Array.isArray(params.items)) {
-                    decorateOurItems(params.items, currentFocusedCard);
-                }
-            } catch (e) {
-                try { console.warn('[trakt_v3] patchSelectShow err', e); } catch (_) {}
-            }
-            return orig.apply(this, arguments);
-        };
-        patched.__trakt_v3_patched = true;
-        Lampa.Select.show = patched;
-        try { console.log('[trakt_v3] Lampa.Select.show patched (picked decoration)'); } catch (_) {}
-    }
-
-    // Идентификация наших items в общем массиве items: по подстроке handleSidebarTap
-    // в исходнике item.onSelect (тот же приём что в v2).
+    // Sidebar labels через v2-стиль (мутация Manifest.plugins[i].name).
+    //
+    // Lampa берёт `plugin.name` статически из Manifest при построении меню —
+    // поэтому чтобы динамически отображать состояние карточки (☐/☑/✓), нужно
+    // мутировать `plugin.name` ПЕРЕД тем как Lampa откроет меню. Делаем это
+    // в capture-phase обработчике `hover:long` (срабатывает раньше bubble-handler
+    // в Lampa.Card, который и строит меню).
     //
     // Префиксы:
-    //   toggle item:    ☑ если active, ☐ если нет
-    //   индикатор:      ✓ если active, '   ' (3 пробела для выравнивания) если нет
-    // picked: true рисуется только для items с collect:true (Lampa.Favorite-bound).
-    // У нас своя картотека → используем префиксы как v2.
-    function decorateOurItems(items, focusedCard) {
-        var watchlistIdx = -1;
-        var separatorNeeded = false;
-        var actionByItem = {};
-
-        function isToggleAction(action) {
-            for (var i = 0; i < SIDEBAR_FIXED.length; i++) {
-                if (SIDEBAR_FIXED[i].action === action) return SIDEBAR_FIXED[i].isToggle;
-            }
-            return action.indexOf('list:') === 0; // custom lists всегда toggle
+    //   toggle (Watchlist, Completed, custom-lists): ☐ если не active, ☑ если active
+    //   индикатор (Continue, Returning):              '   ' если не active, '✓ ' если active
+    // ────────────────────────────────────────────────────────────────────
+    function isToggleAction(action) {
+        for (var i = 0; i < SIDEBAR_FIXED.length; i++) {
+            if (SIDEBAR_FIXED[i].action === action) return SIDEBAR_FIXED[i].isToggle;
         }
-
-        for (var i = 0; i < items.length; i++) {
-            var it = items[i];
-            if (!it || typeof it.onSelect !== 'function') continue;
-            var src = '';
-            try { src = String(it.onSelect); } catch (_) { continue; }
-            if (src.indexOf('handleSidebarTap') === -1) continue;
-
-            var action = decodeAction(it);
-            if (!action) continue;
-            it.__trakt_v3_action = action;
-
-            var cleanTitle = it.title.replace(/^[☐☑✓]\s/, '')
-                                     .replace(/^\s\s\s/, '');
-            var active = focusedCard ? isCardActiveFor(focusedCard, action) : false;
-            var toggle = isToggleAction(action);
-            var prefix = toggle
-                ? (active ? '☑ ' : '☐ ')   // ☑ ☐
-                : (active ? '✓ ' : '   ');        // ✓ + 3 пробела
-            it.title = prefix + cleanTitle;
-
-            if (action === 'watchlist') watchlistIdx = i;
-            if (action === 'continue' || action === 'returning' || action === 'completed') separatorNeeded = true;
-        }
-
-        // Вставка separator-а после Watchlist (визуально отделяем toggle-флажок
-        // от группы 3 status-индикаторов и Completed).
-        if (watchlistIdx >= 0 && separatorNeeded) {
-            var next = items[watchlistIdx + 1];
-            if (!next || !next.__trakt_v3_separator) {
-                items.splice(watchlistIdx + 1, 0, {
-                    title: '', separator: true, __trakt_v3_separator: true
-                });
-            }
-        }
+        return action.indexOf('list:') === 0; // custom lists всегда toggle
     }
 
-    // Поскольку мы регистрируем sidebar entries с фиксированным item.title,
-    // можем определить action по item.title (сравнивая с нашим SIDEBAR_FIXED + CUSTOM_LISTS).
-    function decodeAction(item) {
-        if (!item || typeof item.title !== 'string') return null;
-        // Защитно убираем префиксы: ☐ ☑ ✓ или 3 пробела
-        var t = item.title.replace(/^[☐☑✓]\s/, '').replace(/^\s\s\s/, '');
+    function baseNameOf(action) {
         for (var i = 0; i < SIDEBAR_FIXED.length; i++) {
-            if (SIDEBAR_FIXED[i].name === t) return SIDEBAR_FIXED[i].action;
+            if (SIDEBAR_FIXED[i].action === action) return SIDEBAR_FIXED[i].name;
         }
-        for (var j = 0; j < CUSTOM_LISTS.length; j++) {
-            if (CUSTOM_LISTS[j].title === t) return 'list:' + CUSTOM_LISTS[j].id;
+        if (action.indexOf('list:') === 0) {
+            var lid = Number(action.slice(5));
+            for (var j = 0; j < CUSTOM_LISTS.length; j++) {
+                if (CUSTOM_LISTS[j].id === lid) return CUSTOM_LISTS[j].title;
+            }
         }
-        return null;
+        return action;
+    }
+
+    function labelFor(action, object) {
+        var baseName = baseNameOf(action);
+        var active = object ? isCardActiveFor(object, action) : false;
+        var prefix = isToggleAction(action)
+            ? (active ? '☑ ' : '☐ ')
+            : (active ? '✓ ' : '   ');
+        return prefix + baseName;
+    }
+
+    // Мутирует name на каждой нашей записи в Lampa.Manifest.plugins на основе
+    // состояния переданной карточки. Lampa.Card.onMenu синхронно читает plugin.name —
+    // если name свежий ДО события 'hover:long' (через capture hook), меню сразу
+    // отрендерит правильно.
+    function updateAllOurPluginNames(card) {
+        if (!window.Lampa || !Lampa.Manifest || !Array.isArray(Lampa.Manifest.plugins)) return;
+        try {
+            for (var i = 0; i < Lampa.Manifest.plugins.length; i++) {
+                var entry = Lampa.Manifest.plugins[i];
+                if (!entry || typeof entry.__trakt_v3 !== 'string') continue;
+                var action = entry.__trakt_v3.replace(/^trakt_v3:/, '');
+                entry.name = labelFor(action, card);
+            }
+        } catch (e) {
+            try { console.warn('[trakt_v3] updateAllOurPluginNames failed', e); } catch (_) {}
+        }
     }
 
     // ────────────────────────────────────────────────────────────────────
-    // hover:long listener — обновление currentFocusedCard ПЕРЕД открытием меню.
-    // Без capture-phase магии — просто bubble-listener.
+    // Capture-phase hook на 'hover:long' — стреляет ПЕРЕД bubble-listener Lampa
+    // в src/interaction/card.js. Мутирует Manifest.plugins[i].name для нашей
+    // фокусной карточки ДО того как Lampa.Card.onMenu прочитает plugin.name.
     // ────────────────────────────────────────────────────────────────────
     function installHoverLongHook() {
         if (typeof document === 'undefined' || !document.addEventListener) return;
@@ -375,11 +364,19 @@
             try {
                 var el = e && e.target;
                 while (el && el.nodeType === 1 && el !== document.body) {
-                    if (el.card_data) { currentFocusedCard = el.card_data; return; }
+                    if (el.card_data) {
+                        var card = el.card_data;
+                        currentFocusedCard = card;
+                        updateAllOurPluginNames(card);
+                        return;
+                    }
                     el = el.parentElement;
                 }
-            } catch (_) {}
-        });
+            } catch (err) {
+                try { console.warn('[trakt_v3] hover:long handler err', err); } catch (_) {}
+            }
+        }, true /* capture phase — до Lampa-листенера */);
+        try { console.log('[trakt_v3] hover:long capture hook installed'); } catch (_) {}
     }
 
     // ────────────────────────────────────────────────────────────────────
@@ -396,8 +393,12 @@
             Lampa.Manifest.plugins.push({
                 __trakt_v3: marker,
                 type: 'video',
-                name: item.name,
-                onContextMenu: function () { return { name: item.name }; },
+                // Дефолтное name (без open карточки). updateAllOurPluginNames
+                // мутирует его на каждом hover:long — это и есть механизм
+                // отображения состояния, потому что Lampa берёт title пункта
+                // именно из outer plugin.name.
+                name: labelFor(item.action),
+                onContextMenu: function (object) { return { name: labelFor(item.action, object) }; },
                 onContextLauch: function (object) { handleSidebarTap(item, object); }
             });
         });
@@ -409,17 +410,18 @@
         CUSTOM_LISTS.forEach(function (l) {
             if (registeredListIds[l.id]) return;
             registeredListIds[l.id] = true;
+            var listAction = 'list:' + l.id;
             var item = {
-                action: 'list:' + l.id,
+                action: listAction,
                 name: l.title,
                 isToggle: true,
                 endpoint: '/api/tap/list/' + l.id
             };
             Lampa.Manifest.plugins.push({
-                __trakt_v3: 'trakt_v3:' + item.action,
+                __trakt_v3: 'trakt_v3:' + listAction,
                 type: 'video',
-                name: l.title,
-                onContextMenu: function () { return { name: l.title }; },
+                name: labelFor(listAction),
+                onContextMenu: function (object) { return { name: labelFor(listAction, object) }; },
                 onContextLauch: function (object) { handleSidebarTap(item, object); }
             });
         });
@@ -731,7 +733,6 @@
         registerSettings();
 
         installHoverLongHook();
-        patchSelectShowForPicked();
 
         // Прелоад: тянем /api/folders в фон, чтобы CARDS_INDEX и CUSTOM_LISTS были
         // готовы к моменту первого long-tap'а (даже если юзер не открыл наш Activity).

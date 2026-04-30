@@ -24,8 +24,28 @@ function watchedAtOf(c) {
     return tsOf(c.last_watched_at);
 }
 
+// Дата выхода следующего эпизода (для Returning — ближайший новый сезон/серия).
+function nextAiredAtOf(c) {
+    if (c.type === 'show' && c.progress && c.progress.next_aired_at) {
+        return tsOf(c.progress.next_aired_at);
+    }
+    return 0;
+}
+
 function sortByDesc(items, getter) {
     return items.slice().sort((a, b) => getter(b) - getter(a));
+}
+
+// Ascending sort, но карточки без даты (getter===0) уезжают в конец.
+function sortByAsc(items, getter) {
+    return items.slice().sort((a, b) => {
+        const av = getter(a);
+        const bv = getter(b);
+        if (av === 0 && bv === 0) return 0;
+        if (av === 0) return 1;
+        if (bv === 0) return -1;
+        return av - bv;
+    });
 }
 
 function toLampaCard(c) {
@@ -67,10 +87,14 @@ function toLampaCard(c) {
 }
 
 const FOLDERS = [
-    { id: 'continue_watching', title: 'Смотрю',              filter: c => c.trakt_status === 'continue', sortBy: watchedAtOf },
-    { id: 'watchlist',         title: 'Закладки',            filter: c => c.in_watchlist,                sortBy: c => tsOf(c.listed_at) },
-    { id: 'returning',         title: 'Продолжение следует', filter: c => c.trakt_status === 'returning', sortBy: watchedAtOf },
-    { id: 'completed',         title: 'Просмотрено',         filter: c => c.trakt_status === 'completed', sortBy: watchedAtOf }
+    // Continue Watching: что досматривать сейчас → свежее по последнему просмотру слева.
+    { id: 'continue_watching', title: 'Смотрю',              filter: c => c.trakt_status === 'continue',  sortBy: watchedAtOf,    dir: 'desc' },
+    // Watchlist: orthogonal-тег → свежее добавление слева.
+    { id: 'watchlist',         title: 'Закладки',            filter: c => c.in_watchlist,                  sortBy: c => tsOf(c.listed_at), dir: 'desc' },
+    // Returning: дошёл до конца, ждём → ближайший новый эпизод/сезон вверху.
+    { id: 'returning',         title: 'Продолжение следует', filter: c => c.trakt_status === 'returning',  sortBy: nextAiredAtOf,  dir: 'asc'  },
+    // Completed: закрыто и досмотрено → последнее досмотренное вверху.
+    { id: 'completed',         title: 'Просмотрено',         filter: c => c.trakt_status === 'completed',  sortBy: watchedAtOf,    dir: 'desc' }
 ];
 
 const EMPTY_RESPONSE = {
@@ -88,7 +112,9 @@ export default async function (app) {
 
         const folders = FOLDERS.map(f => {
             const filtered = cards.filter(f.filter);
-            const sorted = sortByDesc(filtered, f.sortBy);
+            const sorted = (f.dir === 'asc')
+                ? sortByAsc(filtered, f.sortBy)
+                : sortByDesc(filtered, f.sortBy);
             const items = sorted.map(toLampaCard);
             return { id: f.id, title: f.title, count: items.length, items };
         });
