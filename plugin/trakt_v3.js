@@ -1,4 +1,4 @@
-/*!
+﻿/*!
  * trakt_v3.js — Lampa-Trakt Plugin v3
  *
  * Тонкий клиент над собственным VPS-прокси (lampa_trakt_v3-server).
@@ -732,91 +732,6 @@
 
         installHoverLongHook();
         patchSelectShowForPicked();
-
-        // Прелоад: тянем /api/folders в фон, чтобы CARDS_INDEX и CUSTOM_LISTS были
-        // готовы к моменту первого long-tap'а (даже если юзер не открыл наш Activity).
-        serverGet('/api/folders').then(function (folders) {
-            writeCachedFolders(folders);
-            ingestFoldersResponse(folders);
-            registerCustomListsInSidebar();
-        }).catch(function (err) {
-            try { console.warn('[trakt_v3] preload /api/folders failed', err); } catch (_) {}
-            var cached = readCachedFolders();
-            if (cached) {
-                ingestFoldersResponse(cached);
-                registerCustomListsInSidebar();
-            }
-        });
-
-        if (window.appready) {
-            injectMenuItem();
-        } else {
-            Lampa.Listener.follow('app', function (e) {
-                if (e.type === 'ready') injectMenuItem();
-            });
-        }
-
-        try { console.log('[trakt_v3] started, version', VERSION); } catch (_) {}
-    }
-
-    function whenLampaReady() {
-        if (window.Lampa && Lampa.Activity && Lampa.Component && Lampa.Listener) {
-            start();
-            return;
-        }
-        var iv = setInterval(function () {
-            if (window.Lampa && Lampa.Activity && Lampa.Component && Lampa.Listener) {
-                clearInterval(iv);
-                start();
-            }
-        }, 200);
-    }
-
-    whenLampaReady();
-})();
-
-        // Прелоад: тянем /api/folders в фон, чтобы CARDS_INDEX и CUSTOM_LISTS были
-        // готовы к моменту первого long-tap'а (даже если юзер не открыл наш Activity).
-        serverGet('/api/folders').then(function (folders) {
-            writeCachedFolders(folders);
-            ingestFoldersResponse(folders);
-            registerCustomListsInSidebar();
-        }).catch(function (err) {
-            try { console.warn('[trakt_v3] preload /api/folders failed', err); } catch (_) {}
-            var cached = readCachedFolders();
-            if (cached) {
-                ingestFoldersResponse(cached);
-                registerCustomListsInSidebar();
-            }
-        });
-
-        if (window.appready) {
-            injectMenuItem();
-        } else {
-            Lampa.Listener.follow('app', function (e) {
-                if (e.type === 'ready') injectMenuItem();
-            });
-        }
-
-        try { console.log('[trakt_v3] started, version', VERSION); } catch (_) {}
-    }
-
-    function whenLampaReady() {
-        if (window.Lampa && Lampa.Activity && Lampa.Component && Lampa.Listener) {
-            start();
-            return;
-        }
-        var iv = setInterval(function () {
-            if (window.Lampa && Lampa.Activity && Lampa.Component && Lampa.Listener) {
-                clearInterval(iv);
-                start();
-            }
-        }, 200);
-    }
-
-    whenLampaReady();
-})();
-icked();
 
         // Прелоад: тянем /api/folders в фон, чтобы CARDS_INDEX и CUSTOM_LISTS были
         // готовы к моменту первого long-tap'а (даже если юзер не открыл наш Activity).
