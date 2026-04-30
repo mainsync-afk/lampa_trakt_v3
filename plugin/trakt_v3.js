@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.1.2';
+    var VERSION = '0.1.3';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -279,8 +279,10 @@
                     // Обновляем подписи sidebar (если юзер сразу снова откроет sidebar
                     // на той же карточке — увидит свежие ☐/☑).
                     updateAllOurPluginNames(object);
-                    // Перерисовываем активный экран чтобы карточка сразу переместилась.
-                    refreshScreenIfActive();
+                    // НЕ делаем refreshScreenIfActive() — экран не мигает,
+                    // карточка переедет в нужный ряд при следующем заходе или sync.
+                    // Когда сделаем иконки на превьюшках — они будут мгновенно
+                    // отражать optimistic update, и re-render не нужен.
                 } else {
                     notify('Ошибка: ' + ((resp && resp.error) || 'unknown'));
                 }
