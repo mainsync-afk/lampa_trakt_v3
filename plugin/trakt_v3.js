@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.1.0';
+    var VERSION = '0.1.1';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -294,9 +294,24 @@
 
     // Идентификация наших items в общем массиве items: по подстроке handleSidebarTap
     // в исходнике item.onSelect (тот же приём что в v2).
+    //
+    // Префиксы:
+    //   toggle item:    ☑ если active, ☐ если нет
+    //   индикатор:      ✓ если active, '   ' (3 пробела для выравнивания) если нет
+    // picked: true рисуется только для items с collect:true (Lampa.Favorite-bound).
+    // У нас своя картотека → используем префиксы как v2.
     function decorateOurItems(items, focusedCard) {
         var watchlistIdx = -1;
-        var separatorIdx = -1;
+        var separatorNeeded = false;
+        var actionByItem = {};
+
+        function isToggleAction(action) {
+            for (var i = 0; i < SIDEBAR_FIXED.length; i++) {
+                if (SIDEBAR_FIXED[i].action === action) return SIDEBAR_FIXED[i].isToggle;
+            }
+            return action.indexOf('list:') === 0; // custom lists всегда toggle
+        }
+
         for (var i = 0; i < items.length; i++) {
             var it = items[i];
             if (!it || typeof it.onSelect !== 'function') continue;
@@ -307,13 +322,23 @@
             var action = decodeAction(it);
             if (!action) continue;
             it.__trakt_v3_action = action;
-            it.picked = focusedCard ? isCardActiveFor(focusedCard, action) : false;
+
+            var cleanTitle = it.title.replace(/^[☐☑✓]\s/, '')
+                                     .replace(/^\s\s\s/, '');
+            var active = focusedCard ? isCardActiveFor(focusedCard, action) : false;
+            var toggle = isToggleAction(action);
+            var prefix = toggle
+                ? (active ? '☑ ' : '☐ ')   // ☑ ☐
+                : (active ? '✓ ' : '   ');        // ✓ + 3 пробела
+            it.title = prefix + cleanTitle;
+
             if (action === 'watchlist') watchlistIdx = i;
-            if (action === 'continue' && separatorIdx < 0) separatorIdx = i;
+            if (action === 'continue' || action === 'returning' || action === 'completed') separatorNeeded = true;
         }
+
         // Вставка separator-а после Watchlist (визуально отделяем toggle-флажок
         // от группы 3 status-индикаторов и Completed).
-        if (watchlistIdx >= 0 && separatorIdx > watchlistIdx) {
+        if (watchlistIdx >= 0 && separatorNeeded) {
             var next = items[watchlistIdx + 1];
             if (!next || !next.__trakt_v3_separator) {
                 items.splice(watchlistIdx + 1, 0, {
@@ -327,7 +352,8 @@
     // можем определить action по item.title (сравнивая с нашим SIDEBAR_FIXED + CUSTOM_LISTS).
     function decodeAction(item) {
         if (!item || typeof item.title !== 'string') return null;
-        var t = item.title.replace(/^[☐☑✓]\s/, ''); // защитно убираем ☐ ☑ ✓
+        // Защитно убираем префиксы: ☐ ☑ ✓ или 3 пробела
+        var t = item.title.replace(/^[☐☑✓]\s/, '').replace(/^\s\s\s/, '');
         for (var i = 0; i < SIDEBAR_FIXED.length; i++) {
             if (SIDEBAR_FIXED[i].name === t) return SIDEBAR_FIXED[i].action;
         }
@@ -629,11 +655,14 @@
             }
 
             // Параметр: URL сервера. При сохранении — проверка через /api/health.
+            // values:{} обязательно — Lampa дёргает Params.select(name, values, default)
+            // даже для type:'input', и без values падает с TypeError.
             Lampa.SettingsApi.addParam({
                 component: SETTINGS_COMPONENT,
                 param: {
                     name: STORAGE_SERVER_URL,
                     type: 'input',
+                    values: {},
                     'default': DEFAULT_SERVER_URL,
                     placeholder: DEFAULT_SERVER_URL
                 },
@@ -703,6 +732,91 @@
 
         installHoverLongHook();
         patchSelectShowForPicked();
+
+        // Прелоад: тянем /api/folders в фон, чтобы CARDS_INDEX и CUSTOM_LISTS были
+        // готовы к моменту первого long-tap'а (даже если юзер не открыл наш Activity).
+        serverGet('/api/folders').then(function (folders) {
+            writeCachedFolders(folders);
+            ingestFoldersResponse(folders);
+            registerCustomListsInSidebar();
+        }).catch(function (err) {
+            try { console.warn('[trakt_v3] preload /api/folders failed', err); } catch (_) {}
+            var cached = readCachedFolders();
+            if (cached) {
+                ingestFoldersResponse(cached);
+                registerCustomListsInSidebar();
+            }
+        });
+
+        if (window.appready) {
+            injectMenuItem();
+        } else {
+            Lampa.Listener.follow('app', function (e) {
+                if (e.type === 'ready') injectMenuItem();
+            });
+        }
+
+        try { console.log('[trakt_v3] started, version', VERSION); } catch (_) {}
+    }
+
+    function whenLampaReady() {
+        if (window.Lampa && Lampa.Activity && Lampa.Component && Lampa.Listener) {
+            start();
+            return;
+        }
+        var iv = setInterval(function () {
+            if (window.Lampa && Lampa.Activity && Lampa.Component && Lampa.Listener) {
+                clearInterval(iv);
+                start();
+            }
+        }, 200);
+    }
+
+    whenLampaReady();
+})();
+
+        // Прелоад: тянем /api/folders в фон, чтобы CARDS_INDEX и CUSTOM_LISTS были
+        // готовы к моменту первого long-tap'а (даже если юзер не открыл наш Activity).
+        serverGet('/api/folders').then(function (folders) {
+            writeCachedFolders(folders);
+            ingestFoldersResponse(folders);
+            registerCustomListsInSidebar();
+        }).catch(function (err) {
+            try { console.warn('[trakt_v3] preload /api/folders failed', err); } catch (_) {}
+            var cached = readCachedFolders();
+            if (cached) {
+                ingestFoldersResponse(cached);
+                registerCustomListsInSidebar();
+            }
+        });
+
+        if (window.appready) {
+            injectMenuItem();
+        } else {
+            Lampa.Listener.follow('app', function (e) {
+                if (e.type === 'ready') injectMenuItem();
+            });
+        }
+
+        try { console.log('[trakt_v3] started, version', VERSION); } catch (_) {}
+    }
+
+    function whenLampaReady() {
+        if (window.Lampa && Lampa.Activity && Lampa.Component && Lampa.Listener) {
+            start();
+            return;
+        }
+        var iv = setInterval(function () {
+            if (window.Lampa && Lampa.Activity && Lampa.Component && Lampa.Listener) {
+                clearInterval(iv);
+                start();
+            }
+        }, 200);
+    }
+
+    whenLampaReady();
+})();
+icked();
 
         // Прелоад: тянем /api/folders в фон, чтобы CARDS_INDEX и CUSTOM_LISTS были
         // готовы к моменту первого long-tap'а (даже если юзер не открыл наш Activity).

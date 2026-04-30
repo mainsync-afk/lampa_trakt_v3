@@ -69,6 +69,9 @@ function snapshotNeedsMigration(snap) {
     for (const c of Object.values(snap.cards)) {
         if (c.trakt_status === undefined) return true;
         if (c.type === 'show' && c.in_watched && !c.progress) return true;
+        // v0.4.2: добавлены listed_at / last_watched_at для сортировки
+        if (c.in_watchlist && c.listed_at === undefined) return true;
+        if (c.in_watched && c.last_watched_at === undefined) return true;
     }
     return false;
 }

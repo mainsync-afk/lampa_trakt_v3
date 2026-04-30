@@ -28,7 +28,12 @@ export function normalizeTraktSnapshot(raw) {
                 in_watchlist: false,
                 in_watched: false,
                 in_collection: false,
-                in_lists: []
+                in_lists: [],
+                // Для сортировки: даты добавления/просмотра.
+                listed_at: null,                                     // когда добавлено в Watchlist
+                last_watched_at: null,                               // когда последний раз смотрели (history)
+                collected_at: null,                                  // когда добавлено в Collection
+                list_listed_at: {}                                   // по custom-list: { listId: ISO }
             };
         }
         // show_status / aired_episodes могут меняться между sync — обновляем всегда
@@ -42,31 +47,31 @@ export function normalizeTraktSnapshot(raw) {
     // watchlist (entry: { type, listed_at, movie/show })
     (raw.watchlistMovies || []).forEach(it => {
         const c = ensureCard('movie', it.movie);
-        if (c) c.in_watchlist = true;
+        if (c) { c.in_watchlist = true; if (it.listed_at) c.listed_at = it.listed_at; }
     });
     (raw.watchlistShows || []).forEach(it => {
         const c = ensureCard('show', it.show);
-        if (c) c.in_watchlist = true;
+        if (c) { c.in_watchlist = true; if (it.listed_at) c.listed_at = it.listed_at; }
     });
 
     // watched (entry: { plays, last_watched_at, movie/show, seasons[] })
     (raw.watchedMovies || []).forEach(it => {
         const c = ensureCard('movie', it.movie);
-        if (c) c.in_watched = true;
+        if (c) { c.in_watched = true; if (it.last_watched_at) c.last_watched_at = it.last_watched_at; }
     });
     (raw.watchedShows || []).forEach(it => {
         const c = ensureCard('show', it.show);
-        if (c) c.in_watched = true;
+        if (c) { c.in_watched = true; if (it.last_watched_at) c.last_watched_at = it.last_watched_at; }
     });
 
     // collection (entry: { last_collected_at, movie/show })
     (raw.collectionMovies || []).forEach(it => {
         const c = ensureCard('movie', it.movie);
-        if (c) c.in_collection = true;
+        if (c) { c.in_collection = true; if (it.last_collected_at) c.collected_at = it.last_collected_at; }
     });
     (raw.collectionShows || []).forEach(it => {
         const c = ensureCard('show', it.show);
-        if (c) c.in_collection = true;
+        if (c) { c.in_collection = true; if (it.last_collected_at) c.collected_at = it.last_collected_at; }
     });
 
     // custom lists (raw.listItems = { [listId]: [items] })
@@ -77,7 +82,10 @@ export function normalizeTraktSnapshot(raw) {
             if (type !== 'movie' && type !== 'show') return;
             const media = it[type];
             const c = ensureCard(type, media);
-            if (c && !c.in_lists.includes(listId)) c.in_lists.push(listId);
+            if (c) {
+                if (!c.in_lists.includes(listId)) c.in_lists.push(listId);
+                if (it.listed_at) c.list_listed_at[listId] = it.listed_at;
+            }
         });
     });
 

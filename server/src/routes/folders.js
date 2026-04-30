@@ -1,9 +1,32 @@
 // folders.js — основной read-эндпоинт для клиента.
 // Маппит универсальную карточку в Lampa-совместимый формат.
 // 4 ряда: Смотрю / Закладки / Продолжение следует / Просмотрено.
+// Сортировка внутри ряда (DESC, новое слева):
+//   - watchlist: по listed_at
+//   - continue/returning/completed: по progress.last_watched_at (для shows)
+//                                  или last_watched_at (для movies)
+//   - custom lists: по list_listed_at[listId]
 
 import { getSnapshot } from '../sync/index.js';
 import { tmdb } from '../lib/tmdb.js';
+
+function tsOf(s) {
+    if (!s) return 0;
+    const t = Date.parse(s);
+    return Number.isFinite(t) ? t : 0;
+}
+
+function watchedAtOf(c) {
+    // Для shows предпочитаем progress.last_watched_at (точнее), fallback к last_watched_at
+    if (c.type === 'show' && c.progress && c.progress.last_watched_at) {
+        return tsOf(c.progress.last_watched_at);
+    }
+    return tsOf(c.last_watched_at);
+}
+
+function sortByDesc(items, getter) {
+    return items.slice().sort((a, b) => getter(b) - getter(a));
+}
 
 function toLampaCard(c) {
     const method = c.type === 'movie' ? 'movie' : 'tv';
@@ -44,10 +67,10 @@ function toLampaCard(c) {
 }
 
 const FOLDERS = [
-    { id: 'continue_watching', title: 'Смотрю',              filter: c => c.trakt_status === 'continue' },
-    { id: 'watchlist',         title: 'Закладки',            filter: c => c.in_watchlist },
-    { id: 'returning',         title: 'Продолжение следует', filter: c => c.trakt_status === 'returning' },
-    { id: 'completed',         title: 'Просмотрено',         filter: c => c.trakt_status === 'completed' }
+    { id: 'continue_watching', title: 'Смотрю',              filter: c => c.trakt_status === 'continue', sortBy: watchedAtOf },
+    { id: 'watchlist',         title: 'Закладки',            filter: c => c.in_watchlist,                sortBy: c => tsOf(c.listed_at) },
+    { id: 'returning',         title: 'Продолжение следует', filter: c => c.trakt_status === 'returning', sortBy: watchedAtOf },
+    { id: 'completed',         title: 'Просмотрено',         filter: c => c.trakt_status === 'completed', sortBy: watchedAtOf }
 ];
 
 const EMPTY_RESPONSE = {
@@ -64,13 +87,17 @@ export default async function (app) {
         const cards = Object.values(snap.cards || {});
 
         const folders = FOLDERS.map(f => {
-            const items = cards.filter(f.filter).map(toLampaCard);
+            const filtered = cards.filter(f.filter);
+            const sorted = sortByDesc(filtered, f.sortBy);
+            const items = sorted.map(toLampaCard);
             return { id: f.id, title: f.title, count: items.length, items };
         });
 
         const lists = snap.lists || [];
         const custom = lists.map(l => {
-            const items = cards.filter(c => (c.in_lists || []).includes(l.id)).map(toLampaCard);
+            const filtered = cards.filter(c => (c.in_lists || []).includes(l.id));
+            const sorted = sortByDesc(filtered, c => tsOf((c.list_listed_at || {})[l.id]));
+            const items = sorted.map(toLampaCard);
             return {
                 id: l.id,
                 slug: l.slug,
