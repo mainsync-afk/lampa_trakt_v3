@@ -11,8 +11,9 @@ import syncRoutes from './routes/sync.js';
 import tapRoutes from './routes/tap.js';
 import episodesRoutes from './routes/episodes.js';
 import episodeRoutes from './routes/episode.js';
+import movieRoutes from './routes/movie.js';
 
-const VERSION = '0.4.7';
+const VERSION = '0.4.8';
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || '0.0.0.0';
 
@@ -41,6 +42,7 @@ await app.register(syncRoutes);
 await app.register(tapRoutes);
 await app.register(episodesRoutes);
 await app.register(episodeRoutes);
+await app.register(movieRoutes);
 
 try {
     await app.listen({ port: PORT, host: HOST });

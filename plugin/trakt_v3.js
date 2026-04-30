@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.1.6';
+    var VERSION = '0.1.8';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -462,32 +462,10 @@
     // для каждого watched-эпизода вычислить hash → Lampa.Timeline.update({...}).
     // Lampa нативно отрисует watched-маркеры в карточке.
     // ────────────────────────────────────────────────────────────────────
-    var episodesSynced = {}; // tmdb → true чтобы не пушить повторно в одной сессии
-
-    function applyEpisodesToTimeline(originalName, episodes) {
-        if (!originalName || !Array.isArray(episodes)) return 0;
-        if (!Lampa.Timeline || typeof Lampa.Timeline.update !== 'function') return 0;
-        var pushed = 0;
-        for (var i = 0; i < episodes.length; i++) {
-            var e = episodes[i];
-            if (!e || !e.watched) continue;
-            var hash = episodeHash(originalName, e.season, e.episode);
-            if (!hash) continue;
-            try {
-                Lampa.Timeline.update({
-                    hash: hash,
-                    percent: 95,
-                    time: 0,
-                    duration: 0,
-                    profile: 0
-                });
-                pushed++;
-            } catch (err) {
-                try { console.warn('[trakt_v3] Timeline.update failed', err); } catch (_) {}
-            }
-        }
-        return pushed;
-    }
+    // Throttle re-sync: skip если последний sync для этого tmdb был < 3 сек назад.
+    // Раньше использовался сессионный cache (episodesSynced) — но он мешал
+    // подхватить изменения когда юзер удалил watched в Trakt и снова открыл карточку.
+    var lastEpSyncTime = {}; // tmdb → ms timestamp
 
     // Map: hash → {tmdb, season, episode}. Заполняется при open карточки шоу.
     // Используется в Timeline.update listener для обратного маппинга.
@@ -507,46 +485,77 @@
         return t && (Date.now() - t < 3000);
     }
 
+    // hashToMovie: hash → {tmdb} для open карточки фильма.
+    var hashToMovie = {};
+
     function syncEpisodesForCard(cardData) {
         if (!cardData) return;
         var tmdb = cardData.id || (cardData.ids && cardData.ids.tmdb);
         var method = cardData.method || cardData.card_type;
-        if (!tmdb || (method !== 'tv')) return; // только для shows
-        if (episodesSynced[tmdb]) return;        // уже синкали в этой сессии
-        episodesSynced[tmdb] = true;
+        if (!tmdb) return;
+
+        // Для фильма — регистрируем hash и выходим (нет episodes).
+        if (method === 'movie') {
+            var origTitle = cardData.original_title || cardData.original_name || cardData.title;
+            if (origTitle) {
+                var mh = utilsHash(origTitle);
+                hashToMovie[mh] = { tmdb: tmdb };
+                try { console.log('[trakt_v3] movie hash registered tmdb=' + tmdb + ' hash=' + mh); } catch (_) {}
+            }
+            return;
+        }
+
+        if (method !== 'tv') return; // фильтруем не-tv/не-movie
+
+        // Throttle: не делать sync если последний был < 3 сек назад
+        var now = Date.now();
+        if (lastEpSyncTime[tmdb] && (now - lastEpSyncTime[tmdb]) < 3000) return;
+        lastEpSyncTime[tmdb] = now;
+
         serverGet('/api/show/' + tmdb + '/episodes')
             .then(function (resp) {
                 if (!resp || !resp.ok) return;
                 var originalName = resp.original_name || cardData.original_name;
-                var episodes = resp.episodes || [];
-                var pushed = 0;
-                for (var i = 0; i < episodes.length; i++) {
-                    var e = episodes[i];
-                    var hash = episodeHash(originalName, e.season, e.episode);
-                    if (!hash) continue;
-                    // Запоминаем mapping для этой карточки (для всех эпизодов 1..N сезонов:
-                    // даже не watched тоже регистрируем, чтобы при ручном click находить).
-                    hashToEpisode[hash] = { tmdb: tmdb, season: e.season, episode: e.episode };
-                    if (e.watched) {
-                        markPushed(hash);
-                        try {
-                            Lampa.Timeline.update({ hash: hash, percent: 95, time: 0, duration: 0, profile: 0 });
-                            pushed++;
-                        } catch (err) {
-                            try { console.warn('[trakt_v3] Timeline.update failed', err); } catch (_) {}
-                        }
+
+                // Build set of watched (S,E) keys для быстрого lookup
+                var watchedSet = {};
+                (resp.episodes || []).forEach(function (e) {
+                    if (e && e.watched) {
+                        watchedSet[e.season + '.' + e.episode] = true;
+                    }
+                });
+
+                // Регистрируем hashes для ВСЕХ aired эпизодов в карточке
+                // (для D1b: ловим click на любом эпизоде, даже не-watched).
+                registerAllEpisodeHashes(cardData, originalName);
+
+                // Идём по всем зарегистрированным hashes этой карточки
+                // и пушим Timeline.update с правильным percent:
+                //   watched   → percent: 95 (Lampa отрисует маркер).
+                //   unwatched → percent: 0  (Lampa уберёт маркер, если был).
+                var pushedWatched = 0, pushedUnwatched = 0;
+                for (var hash in hashToEpisode) {
+                    var info = hashToEpisode[hash];
+                    if (info.tmdb !== tmdb) continue;
+                    var key = info.season + '.' + info.episode;
+                    var isWatched = !!watchedSet[key];
+                    var percent = isWatched ? 95 : 0;
+                    markPushed(hash);
+                    try {
+                        Lampa.Timeline.update({
+                            hash: hash, percent: percent, time: 0, duration: 0, profile: 0
+                        });
+                        if (isWatched) pushedWatched++; else pushedUnwatched++;
+                    } catch (err) {
+                        try { console.warn('[trakt_v3] Timeline.update failed', err); } catch (_) {}
                     }
                 }
-                // Также регистрируем хэши для всех ВОЗМОЖНЫХ эпизодов (включая not-watched)
-                // — чтобы юзер мог отметить эпизод который пока не watched, и мы его поймали.
-                // Trakt прислал нам только watched. Но Lampa отображает все эпизоды по всем сезонам.
-                // Чтобы поймать клик на любом — register hashes для ВСЕХ aired эпизодов в карточке.
-                registerAllEpisodeHashes(cardData, originalName);
-                try { console.log('[trakt_v3] episodes synced for tmdb=' + tmdb + ', pushed=' + pushed); } catch (_) {}
+                try { console.log('[trakt_v3] episodes synced tmdb=' + tmdb + ' watched=' + pushedWatched + ' unwatched=' + pushedUnwatched); } catch (_) {}
             })
             .catch(function (err) {
                 try { console.warn('[trakt_v3] episodes sync failed for ' + tmdb, err); } catch (_) {}
-                episodesSynced[tmdb] = false;
+                // Сбрасываем throttle чтобы ретрай мог пройти на следующий open
+                delete lastEpSyncTime[tmdb];
             });
     }
 
@@ -593,25 +602,66 @@
                 var hash = data.hash;
                 // Игнорируем events которые мы сами породили
                 if (wasRecentlyPushed(hash)) return;
-                var info = hashToEpisode[hash];
-                if (!info) return; // не наш эпизод (фильм, или не-зарегистрированное шоу)
-                var percent = (data.road && Number(data.road.percent)) || 0;
-                var watched = percent > 0;
-                serverPost('/api/episode/watch', {
-                    tmdb: info.tmdb,
-                    season: info.season,
-                    episode: info.episode,
-                    watched: watched
-                }).then(function (resp) {
-                    if (resp && resp.ok) {
-                        try { console.log('[trakt_v3] episode ' + (watched ? 'watched' : 'unwatched') + ' tmdb=' + info.tmdb + ' S' + info.season + 'E' + info.episode); } catch (_) {}
-                    } else {
-                        notify('Ошибка отметки эпизода: ' + ((resp && resp.error) || 'unknown'));
-                    }
-                }).catch(function (err) {
-                    try { console.warn('[trakt_v3] episode/watch failed', err); } catch (_) {}
-                    notify('Сервер недоступен');
-                });
+
+                var road = data.road || {};
+                var percent = Number(road.percent) || 0;
+                var duration = Number(road.duration) || 0;
+
+                // Различаем источник update:
+                //   duration === 0 → ручной toggle (клик в карточке).
+                //   duration  > 0 → авто-update от плеера во время просмотра.
+                var isManual = duration === 0;
+                var watched;
+                if (isManual) {
+                    // ручной клик: percent=95 → mark, percent=0 → unmark
+                    watched = percent > 0;
+                } else {
+                    // play: mark watched только при достижении 80% (Trakt-стандарт).
+                    // ниже порога — игнорируем (cross-device прогресс будет в D1d).
+                    if (percent < 80) return;
+                    watched = true;
+                }
+
+                // Эпизод?
+                var epInfo = hashToEpisode[hash];
+                if (epInfo) {
+                    serverPost('/api/episode/watch', {
+                        tmdb: epInfo.tmdb,
+                        season: epInfo.season,
+                        episode: epInfo.episode,
+                        watched: watched
+                    }).then(function (resp) {
+                        if (resp && resp.ok && resp.action !== 'noop') {
+                            try { console.log('[trakt_v3] episode ' + (watched ? 'watched' : 'unwatched') + ' tmdb=' + epInfo.tmdb + ' S' + epInfo.season + 'E' + epInfo.episode + ' (' + (isManual ? 'manual' : 'auto>=80%') + ')'); } catch (_) {}
+                        } else if (!resp || !resp.ok) {
+                            notify('Ошибка отметки эпизода: ' + ((resp && resp.error) || 'unknown'));
+                        }
+                    }).catch(function (err) {
+                        try { console.warn('[trakt_v3] episode/watch failed', err); } catch (_) {}
+                        notify('Сервер недоступен');
+                    });
+                    return;
+                }
+
+                // Фильм?
+                var movieInfo = hashToMovie[hash];
+                if (movieInfo) {
+                    serverPost('/api/movie/watch', {
+                        tmdb: movieInfo.tmdb,
+                        watched: watched
+                    }).then(function (resp) {
+                        if (resp && resp.ok && resp.action !== 'noop') {
+                            try { console.log('[trakt_v3] movie ' + (watched ? 'watched' : 'unwatched') + ' tmdb=' + movieInfo.tmdb + ' (' + (isManual ? 'manual' : 'auto>=80%') + ')'); } catch (_) {}
+                        } else if (!resp || !resp.ok) {
+                            notify('Ошибка отметки фильма: ' + ((resp && resp.error) || 'unknown'));
+                        }
+                    }).catch(function (err) {
+                        try { console.warn('[trakt_v3] movie/watch failed', err); } catch (_) {}
+                        notify('Сервер недоступен');
+                    });
+                    return;
+                }
+                // Иначе: незарегистрированный hash — игнорируем (не наш контент).
             } catch (err) {
                 try { console.warn('[trakt_v3] Timeline.update handler err', err); } catch (_) {}
             }
