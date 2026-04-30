@@ -72,8 +72,9 @@ function snapshotNeedsMigration(snap) {
         // v0.4.2: добавлены listed_at / last_watched_at для сортировки
         if (c.in_watchlist && c.listed_at === undefined) return true;
         if (c.in_watched && c.last_watched_at === undefined) return true;
-        // v0.4.5: добавлен episodes_watched (детально по эпизодам)
-        if (c.type === 'show' && c.in_watched && c.progress && c.progress.episodes_aired === undefined) return true;
+        // v0.4.5/v0.4.10: episodes_aired для всех shows (не только in_watched)
+        if (c.type === 'show' && c.progress && c.progress.episodes_aired === undefined) return true;
+        if (c.type === 'show' && c.trakt_id && !c.progress) return true;
     }
     return false;
 }
@@ -114,10 +115,13 @@ async function fetchAll() {
 }
 
 async function fetchProgressForWatched(cards, log) {
-    // Дёргаем /shows/<id>/progress/watched для всех show с in_watched=true.
-    // Throttled до 8 параллельных, чтобы не упереться в Trakt rate-limit.
+    // Дёргаем /shows/<id>/progress/watched для ВСЕХ shows в snapshot
+    // (in_watched + Watchlist + Collection + Custom Lists), не только watched.
+    // Это нужно потому что юзер может click'нуть эпизод в карточке шоу из
+    // Watchlist (ещё не watched) — и плагину нужны hashes всех aired эпизодов.
+    // Throttled до 8 параллельных.
     const targets = Object.values(cards).filter(c =>
-        c.type === 'show' && c.in_watched && c.trakt_id
+        c.type === 'show' && c.trakt_id
     );
     if (targets.length === 0) return;
 
@@ -213,7 +217,7 @@ async function performSync(activities) {
     // Per-show progress fetch — только если эпизоды менялись или у каких-то watched-shows нет progress
     const epChanged = activitiesEpisodesChanged(_state.last_activities, activities);
     const hasMissing = Object.values(cards).some(c =>
-        c.type === 'show' && c.in_watched && (
+        c.type === 'show' && (
             !c.progress || c.progress.episodes_aired === undefined
         )
     );
