@@ -61,6 +61,18 @@ function activitiesChanged(prev, curr) {
     return JSON.stringify(prev) !== JSON.stringify(curr);
 }
 
+// Возвращает true если в snapshot есть watched-shows без progress
+// или вообще карточки без trakt_status. Используется для миграции
+// после расширения структуры snapshot — чтобы автоматически re-sync.
+function snapshotNeedsMigration(snap) {
+    if (!snap || !snap.cards) return false;
+    for (const c of Object.values(snap.cards)) {
+        if (c.trakt_status === undefined) return true;
+        if (c.type === 'show' && c.in_watched && !c.progress) return true;
+    }
+    return false;
+}
+
 async function fetchAll() {
     const [
         watchlistMovies,
@@ -226,10 +238,14 @@ export async function syncOnce(force = false) {
     _state.syncing = true;
     try {
         const activities = await trakt.lastActivities();
-        const changed = force || !_state.snapshot || activitiesChanged(_state.last_activities, activities);
+        const needsMigration = snapshotNeedsMigration(_state.snapshot);
+        const changed = force || !_state.snapshot || needsMigration || activitiesChanged(_state.last_activities, activities);
         if (!changed) {
             _state.lastError = null;
             return { skipped: true, reason: 'no changes' };
+        }
+        if (needsMigration) {
+            _state.log.info('snapshot needs migration (missing progress/trakt_status), forcing sync');
         }
         await performSync(activities);
         _state.lastError = null;
