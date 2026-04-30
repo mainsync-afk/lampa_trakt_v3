@@ -21,11 +21,20 @@ export function normalizeTraktSnapshot(raw) {
                 poster_path: null,
                 vote_average: 0,
                 number_of_seasons: type === 'show' ? null : undefined,
+                show_status: type === 'show' ? null : undefined,    // 'returning series' | 'ended' | 'canceled' | 'in production'
+                aired_episodes: type === 'show' ? null : undefined,
+                progress: null,                                      // {completed, aired, next_aired_at, last_watched_at}
+                trakt_status: null,                                  // 'continue' | 'returning' | 'completed' | null
                 in_watchlist: false,
                 in_watched: false,
                 in_collection: false,
                 in_lists: []
             };
+        }
+        // show_status / aired_episodes могут меняться между sync — обновляем всегда
+        if (type === 'show') {
+            if (media.status) cards[k].show_status = media.status;
+            if (typeof media.aired_episodes === 'number') cards[k].aired_episodes = media.aired_episodes;
         }
         return cards[k];
     }

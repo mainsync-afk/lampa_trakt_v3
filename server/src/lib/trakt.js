@@ -130,6 +130,9 @@ export const trakt = {
     lists: () => getJson('/users/me/lists'),
     listItems: (listId) => getJson(`/users/me/lists/${listId}/items?type=show,movie&limit=2000&extended=full`),
 
+    // per-show progress: { completed, aired, last_episode, next_episode (with first_aired), ... }
+    progressWatched: (traktId) => getJson(`/shows/${traktId}/progress/watched`),
+
     // write — body shape: { movies: [{ids: {tmdb}}] } или { shows: [...] }
     addToWatchlist:      (body) => postJson('/sync/watchlist', body),
     removeFromWatchlist: (body) => postJson('/sync/watchlist/remove', body),

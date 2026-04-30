@@ -8,6 +8,7 @@ import { trakt } from '../lib/trakt.js';
 import { repo } from '../lib/repo.js';
 import { normalizeTraktSnapshot } from './normalize.js';
 import { enrichCards } from './enrich.js';
+import { classifyAll } from './classifier.js';
 
 const POLL_INTERVAL_SEC = Number(process.env.SYNC_POLL_INTERVAL_SEC || 60);
 
@@ -95,6 +96,46 @@ async function fetchAll() {
     };
 }
 
+async function fetchProgressForWatched(cards, log) {
+    // Дёргаем /shows/<id>/progress/watched для всех show с in_watched=true.
+    // Throttled до 8 параллельных, чтобы не упереться в Trakt rate-limit.
+    const targets = Object.values(cards).filter(c =>
+        c.type === 'show' && c.in_watched && c.trakt_id
+    );
+    if (targets.length === 0) return;
+
+    log.info({ count: targets.length }, 'sync: fetching show progress');
+    const concurrency = 8;
+    let i = 0;
+    let failed = 0;
+    async function worker() {
+        while (i < targets.length) {
+            const c = targets[i++];
+            try {
+                const p = await trakt.progressWatched(c.trakt_id);
+                c.progress = {
+                    completed: Number(p.completed) || 0,
+                    aired: Number(p.aired) || 0,
+                    next_aired_at: p.next_episode?.first_aired || null,
+                    last_watched_at: p.last_watched_at || null
+                };
+            } catch (err) {
+                failed++;
+                log.warn({ err: String(err.message || err), tmdb: c.tmdb }, 'progress fetch failed');
+            }
+        }
+    }
+    const n = Math.min(concurrency, targets.length);
+    await Promise.all(Array(n).fill(0).map(() => worker()));
+    if (failed > 0) log.warn({ failed }, 'some progress fetches failed');
+}
+
+function activitiesEpisodesChanged(prev, curr) {
+    const a = prev?.episodes?.watched_at;
+    const b = curr?.episodes?.watched_at;
+    return a !== b;
+}
+
 async function performSync(activities) {
     const t0 = Date.now();
     _state.log.info('sync: fetching trakt');
@@ -103,26 +144,48 @@ async function performSync(activities) {
     _state.log.info('sync: normalizing');
     const cards = normalizeTraktSnapshot(raw);
 
-    // Carryover display-полей из старого snapshot чтобы новые карточки могли
-    // получить TMDB-обогащение, а уже обогащённые — пропустить дёрганье TMDB.
+    // Carryover из старого snapshot — display-поля + progress + show_status.
     if (_state.snapshot && _state.snapshot.cards) {
         const old = _state.snapshot.cards;
         for (const k of Object.keys(cards)) {
-            if (old[k] && old[k].poster_path) {
-                cards[k].poster_path = old[k].poster_path;
-                cards[k].vote_average = old[k].vote_average;
-                cards[k].title = old[k].title || cards[k].title;
-                cards[k].original_title = old[k].original_title || cards[k].original_title;
-                cards[k].release_date = old[k].release_date || cards[k].release_date;
+            const o = old[k];
+            if (!o) continue;
+            // TMDB-обогащение
+            if (o.poster_path) {
+                cards[k].poster_path = o.poster_path;
+                cards[k].vote_average = o.vote_average;
+                cards[k].title = o.title || cards[k].title;
+                cards[k].original_title = o.original_title || cards[k].original_title;
+                cards[k].release_date = o.release_date || cards[k].release_date;
                 if (cards[k].type === 'show') {
-                    cards[k].number_of_seasons = old[k].number_of_seasons || cards[k].number_of_seasons;
+                    cards[k].number_of_seasons = o.number_of_seasons || cards[k].number_of_seasons;
                 }
             }
+            // show metadata (если в свежих данных не пришло)
+            if (cards[k].type === 'show' && !cards[k].show_status && o.show_status) {
+                cards[k].show_status = o.show_status;
+            }
+            // Progress — переносим как есть; обновим ниже только если эпизоды менялись
+            if (o.progress) cards[k].progress = o.progress;
         }
     }
 
     _state.log.info({ cards: Object.keys(cards).length }, 'sync: enriching tmdb');
     await enrichCards(cards);
+
+    // Per-show progress fetch — только если эпизоды менялись или у каких-то watched-shows нет progress
+    const epChanged = activitiesEpisodesChanged(_state.last_activities, activities);
+    const hasMissing = Object.values(cards).some(c =>
+        c.type === 'show' && c.in_watched && !c.progress
+    );
+    if (epChanged || hasMissing || !_state.snapshot) {
+        await fetchProgressForWatched(cards, _state.log);
+    } else {
+        _state.log.info('sync: progress unchanged, skipping per-show fetch');
+    }
+
+    // Classify все карточки (movies + shows)
+    classifyAll(cards);
 
     const lists = (raw.lists || []).map(l => ({
         id: l.ids.trakt,

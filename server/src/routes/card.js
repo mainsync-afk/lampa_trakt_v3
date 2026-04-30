@@ -36,6 +36,9 @@ export default async function (app) {
             in_watched: !!c.in_watched,
             in_collection: !!c.in_collection,
             in_lists: c.in_lists || [],
+            trakt_status: c.trakt_status || null,
+            show_status: c.show_status || null,
+            progress: c.progress || null,
             known: true
         };
     });

@@ -10,7 +10,7 @@ import cardRoutes from './routes/card.js';
 import syncRoutes from './routes/sync.js';
 import tapRoutes from './routes/tap.js';
 
-const VERSION = '0.3.0';
+const VERSION = '0.4.0';
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || '0.0.0.0';
 

@@ -1,6 +1,6 @@
 // folders.js — основной read-эндпоинт для клиента.
-// Маппит универсальную карточку в Lampa-совместимый формат
-// (см. v2 trakt_v2.js: formatMedia + enrichWithTmdb).
+// Маппит универсальную карточку в Lampa-совместимый формат.
+// 4 ряда: Смотрю / Закладки / Продолжение следует / Просмотрено.
 
 import { getSnapshot } from '../sync/index.js';
 import { tmdb } from '../lib/tmdb.js';
@@ -26,12 +26,13 @@ function toLampaCard(c) {
         poster: poster,
         img: poster,
 
-        // membership-флаги (Trakt 1:1)
+        // membership-флаги + computed status
         trakt: {
             in_watchlist: !!c.in_watchlist,
             in_watched: !!c.in_watched,
             in_collection: !!c.in_collection,
-            in_lists: c.in_lists || []
+            in_lists: c.in_lists || [],
+            status: c.trakt_status || null   // 'continue' | 'returning' | 'completed' | null
         }
     };
     if (c.type === 'show') {
@@ -42,14 +43,16 @@ function toLampaCard(c) {
     return card;
 }
 
+const FOLDERS = [
+    { id: 'continue_watching', title: 'Смотрю',              filter: c => c.trakt_status === 'continue' },
+    { id: 'watchlist',         title: 'Закладки',            filter: c => c.in_watchlist },
+    { id: 'returning',         title: 'Продолжение следует', filter: c => c.trakt_status === 'returning' },
+    { id: 'completed',         title: 'Просмотрено',         filter: c => c.trakt_status === 'completed' }
+];
+
 const EMPTY_RESPONSE = {
     generated_at: null,
-    folders: [
-        { id: 'watchlist',      title: 'Watchlist',       count: 0, items: [] },
-        { id: 'watched_movies', title: 'Watched Movies',  count: 0, items: [] },
-        { id: 'watched_shows',  title: 'Watched Shows',   count: 0, items: [] },
-        { id: 'collection',     title: 'Collection',      count: 0, items: [] }
-    ],
+    folders: FOLDERS.map(f => ({ id: f.id, title: f.title, count: 0, items: [] })),
     custom_lists: []
 };
 
@@ -59,10 +62,11 @@ export default async function (app) {
         if (!snap) return EMPTY_RESPONSE;
 
         const cards = Object.values(snap.cards || {});
-        const wl  = cards.filter(c => c.in_watchlist).map(toLampaCard);
-        const wm  = cards.filter(c => c.in_watched && c.type === 'movie').map(toLampaCard);
-        const ws  = cards.filter(c => c.in_watched && c.type === 'show').map(toLampaCard);
-        const col = cards.filter(c => c.in_collection).map(toLampaCard);
+
+        const folders = FOLDERS.map(f => {
+            const items = cards.filter(f.filter).map(toLampaCard);
+            return { id: f.id, title: f.title, count: items.length, items };
+        });
 
         const lists = snap.lists || [];
         const custom = lists.map(l => {
@@ -78,12 +82,7 @@ export default async function (app) {
 
         return {
             generated_at: snap.meta?.generated_at || null,
-            folders: [
-                { id: 'watchlist',      title: 'Watchlist',      count: wl.length,  items: wl  },
-                { id: 'watched_movies', title: 'Watched Movies', count: wm.length,  items: wm  },
-                { id: 'watched_shows',  title: 'Watched Shows',  count: ws.length,  items: ws  },
-                { id: 'collection',     title: 'Collection',     count: col.length, items: col }
-            ],
+            folders,
             custom_lists: custom
         };
     });
