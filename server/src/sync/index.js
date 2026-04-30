@@ -266,6 +266,14 @@ export async function syncOnce(force = false) {
     }
 }
 
+// Запускает асинхронный sync с небольшой задержкой. Используется write-actions
+// после успешного tap'а — сервер обновит snapshot полностью (TMDB enrich,
+// listed_at, etc) пока юзер ещё в sidebar. К моменту следующего захода в
+// Activity юзер увидит правильно обогащённую карточку.
+export function triggerBackgroundSync(delayMs = 200) {
+    setTimeout(() => { syncOnce(true).catch(() => {}); }, delayMs);
+}
+
 export function startPolling() {
     if (_state.pollTimer) return;
     _state.pollTimer = setInterval(() => syncOnce().catch(() => {}), POLL_INTERVAL_SEC * 1000);

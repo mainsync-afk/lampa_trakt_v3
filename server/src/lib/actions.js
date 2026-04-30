@@ -10,7 +10,7 @@
 
 import { trakt } from './trakt.js';
 import { repo } from './repo.js';
-import { getSnapshot } from '../sync/index.js';
+import { getSnapshot, triggerBackgroundSync } from '../sync/index.js';
 
 function key(type, tmdb) { return type + ':' + tmdb; }
 
@@ -75,6 +75,10 @@ async function toggleBool(tmdb, type, field, addFn, removeFn) {
         } else {
             await removeFn(payload(type, tmdb));
         }
+        // Trakt принял запись → дёргаем full sync в фоне, чтобы snapshot
+        // получил полные данные карточки (title, poster, listed_at, ...) без
+        // ожидания обычного poll-цикла.
+        triggerBackgroundSync(200);
         return { state: cardState(card), action: next ? 'added' : 'removed' };
     } catch (err) {
         // rollback
@@ -122,6 +126,7 @@ export async function toggleListMembership(tmdb, type, listId) {
         } else {
             await trakt.addToList(lid, payload(type, tmdb));
         }
+        triggerBackgroundSync(200);
         return { state: cardState(card), action: wasIn ? 'removed' : 'added' };
     } catch (err) {
         card.in_lists = prev;
