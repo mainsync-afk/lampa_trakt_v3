@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.1.3';
+    var VERSION = '0.1.4';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -65,6 +65,31 @@
 
     function writeCachedFolders(folders) {
         try { Lampa.Storage.set(STORAGE_FOLDERS_CACHE, JSON.stringify(folders || {})); } catch (_) {}
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    // Lampa-compatible Java-style hash (Utils.hash из lampa-source)
+    // Используется для вычисления hash эпизода/фильма для Lampa.Timeline.
+    // Формула:
+    //   episode hash:  Utils.hash(season + (season>10 ? ':' : '') + episode + original_name)
+    //   movie hash:    Utils.hash(original_title)
+    // ────────────────────────────────────────────────────────────────────
+    function utilsHash(input) {
+        var str = (input || '') + '';
+        var h = 0;
+        if (str.length === 0) return h + '';
+        for (var i = 0; i < str.length; i++) {
+            var c = str.charCodeAt(i);
+            h = ((h << 5) - h) + c;
+            h = h & h; // 32-bit integer
+        }
+        return Math.abs(h) + '';
+    }
+
+    function episodeHash(originalName, season, episode) {
+        if (!originalName) return null;
+        var key = season + (season > 10 ? ':' : '') + episode + originalName;
+        return utilsHash(key);
     }
 
     // ────────────────────────────────────────────────────────────────────
@@ -431,6 +456,76 @@
     }
 
     // ────────────────────────────────────────────────────────────────────
+    // D1a: sync watched-эпизодов в Lampa-карточку (read-only)
+    //
+    // При open full-карточки шоу — fetch /api/show/<tmdb>/episodes →
+    // для каждого watched-эпизода вычислить hash → Lampa.Timeline.update({...}).
+    // Lampa нативно отрисует watched-маркеры в карточке.
+    // ────────────────────────────────────────────────────────────────────
+    var episodesSynced = {}; // tmdb → true чтобы не пушить повторно в одной сессии
+
+    function applyEpisodesToTimeline(originalName, episodes) {
+        if (!originalName || !Array.isArray(episodes)) return 0;
+        if (!Lampa.Timeline || typeof Lampa.Timeline.update !== 'function') return 0;
+        var pushed = 0;
+        for (var i = 0; i < episodes.length; i++) {
+            var e = episodes[i];
+            if (!e || !e.watched) continue;
+            var hash = episodeHash(originalName, e.season, e.episode);
+            if (!hash) continue;
+            try {
+                Lampa.Timeline.update({
+                    hash: hash,
+                    percent: 95,
+                    time: 0,
+                    duration: 0,
+                    profile: 0
+                });
+                pushed++;
+            } catch (err) {
+                try { console.warn('[trakt_v3] Timeline.update failed', err); } catch (_) {}
+            }
+        }
+        return pushed;
+    }
+
+    function syncEpisodesForCard(cardData) {
+        if (!cardData) return;
+        var tmdb = cardData.id || (cardData.ids && cardData.ids.tmdb);
+        var method = cardData.method || cardData.card_type;
+        if (!tmdb || (method !== 'tv')) return; // только для shows
+        if (episodesSynced[tmdb]) return;        // уже синкали в этой сессии
+        episodesSynced[tmdb] = true;
+        serverGet('/api/show/' + tmdb + '/episodes')
+            .then(function (resp) {
+                if (!resp || !resp.ok) return;
+                var pushed = applyEpisodesToTimeline(resp.original_name || cardData.original_name, resp.episodes || []);
+                try { console.log('[trakt_v3] episodes synced for tmdb=' + tmdb + ', pushed=' + pushed); } catch (_) {}
+            })
+            .catch(function (err) {
+                try { console.warn('[trakt_v3] episodes sync failed for ' + tmdb, err); } catch (_) {}
+                // Сбрасываем флаг — попробуем ещё раз при следующем open
+                episodesSynced[tmdb] = false;
+            });
+    }
+
+    // Hook на open full-карточки. Lampa шлёт event 'full' с типом 'complite'
+    // когда карточка собрана и видна юзеру.
+    function installFullCardHook() {
+        if (!window.Lampa || !Lampa.Listener) return;
+        if (window.__trakt_v3_full_hook_installed) return;
+        window.__trakt_v3_full_hook_installed = true;
+        Lampa.Listener.follow('full', function (e) {
+            if (!e) return;
+            if (e.type === 'complite' || e.type === 'complete') {
+                var data = e.data && (e.data.movie || e.data);
+                if (data) syncEpisodesForCard(data);
+            }
+        });
+        try { console.log('[trakt_v3] Lampa.Listener.full hook installed'); } catch (_) {}
+    }
+
+    // ────────────────────────────────────────────────────────────────────
     // MainComponent — Activity с 4 рядами
     // ────────────────────────────────────────────────────────────────────
     function MainComponent(object) {
@@ -735,6 +830,7 @@
         registerSettings();
 
         installHoverLongHook();
+        installFullCardHook();
 
         // Прелоад: тянем /api/folders в фон, чтобы CARDS_INDEX и CUSTOM_LISTS были
         // готовы к моменту первого long-tap'а (даже если юзер не открыл наш Activity).

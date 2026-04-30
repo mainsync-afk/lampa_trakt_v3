@@ -72,6 +72,8 @@ function snapshotNeedsMigration(snap) {
         // v0.4.2: добавлены listed_at / last_watched_at для сортировки
         if (c.in_watchlist && c.listed_at === undefined) return true;
         if (c.in_watched && c.last_watched_at === undefined) return true;
+        // v0.4.5: добавлен episodes_watched (детально по эпизодам)
+        if (c.type === 'show' && c.in_watched && c.progress && c.progress.episodes_watched === undefined) return true;
     }
     return false;
 }
@@ -128,11 +130,26 @@ async function fetchProgressForWatched(cards, log) {
             const c = targets[i++];
             try {
                 const p = await trakt.progressWatched(c.trakt_id);
+                // Детальный массив эпизодов: { 'S01E03': last_watched_at, ... }
+                // Хранится compact-форматом для D1a (Lampa.Timeline.update).
+                const episodes_watched = {};
+                if (Array.isArray(p.seasons)) {
+                    for (const s of p.seasons) {
+                        if (!s || !Array.isArray(s.episodes)) continue;
+                        for (const e of s.episodes) {
+                            if (!e || !e.completed) continue;
+                            const sn = String(s.number).padStart(2, '0');
+                            const en = String(e.number).padStart(2, '0');
+                            episodes_watched['S' + sn + 'E' + en] = e.last_watched_at || p.last_watched_at || null;
+                        }
+                    }
+                }
                 c.progress = {
                     completed: Number(p.completed) || 0,
                     aired: Number(p.aired) || 0,
                     next_aired_at: p.next_episode?.first_aired || null,
-                    last_watched_at: p.last_watched_at || null
+                    last_watched_at: p.last_watched_at || null,
+                    episodes_watched
                 };
             } catch (err) {
                 failed++;
