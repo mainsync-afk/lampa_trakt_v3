@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.1.5';
+    var VERSION = '0.1.6';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -489,6 +489,24 @@
         return pushed;
     }
 
+    // Map: hash → {tmdb, season, episode}. Заполняется при open карточки шоу.
+    // Используется в Timeline.update listener для обратного маппинга.
+    var hashToEpisode = {};
+
+    // Set of hashes недавно записанных нами programmatically (в applyEpisodesToTimeline
+    // или после tap'а). Используется чтобы игнорировать соответствующие update-events
+    // и не уйти в loop.
+    var recentlyPushedHashes = {};
+    function markPushed(hash) {
+        recentlyPushedHashes[hash] = Date.now();
+        // Очищаем через 3 сек
+        setTimeout(function () { delete recentlyPushedHashes[hash]; }, 3000);
+    }
+    function wasRecentlyPushed(hash) {
+        var t = recentlyPushedHashes[hash];
+        return t && (Date.now() - t < 3000);
+    }
+
     function syncEpisodesForCard(cardData) {
         if (!cardData) return;
         var tmdb = cardData.id || (cardData.ids && cardData.ids.tmdb);
@@ -499,14 +517,106 @@
         serverGet('/api/show/' + tmdb + '/episodes')
             .then(function (resp) {
                 if (!resp || !resp.ok) return;
-                var pushed = applyEpisodesToTimeline(resp.original_name || cardData.original_name, resp.episodes || []);
+                var originalName = resp.original_name || cardData.original_name;
+                var episodes = resp.episodes || [];
+                var pushed = 0;
+                for (var i = 0; i < episodes.length; i++) {
+                    var e = episodes[i];
+                    var hash = episodeHash(originalName, e.season, e.episode);
+                    if (!hash) continue;
+                    // Запоминаем mapping для этой карточки (для всех эпизодов 1..N сезонов:
+                    // даже не watched тоже регистрируем, чтобы при ручном click находить).
+                    hashToEpisode[hash] = { tmdb: tmdb, season: e.season, episode: e.episode };
+                    if (e.watched) {
+                        markPushed(hash);
+                        try {
+                            Lampa.Timeline.update({ hash: hash, percent: 95, time: 0, duration: 0, profile: 0 });
+                            pushed++;
+                        } catch (err) {
+                            try { console.warn('[trakt_v3] Timeline.update failed', err); } catch (_) {}
+                        }
+                    }
+                }
+                // Также регистрируем хэши для всех ВОЗМОЖНЫХ эпизодов (включая not-watched)
+                // — чтобы юзер мог отметить эпизод который пока не watched, и мы его поймали.
+                // Trakt прислал нам только watched. Но Lampa отображает все эпизоды по всем сезонам.
+                // Чтобы поймать клик на любом — register hashes для ВСЕХ aired эпизодов в карточке.
+                registerAllEpisodeHashes(cardData, originalName);
                 try { console.log('[trakt_v3] episodes synced for tmdb=' + tmdb + ', pushed=' + pushed); } catch (_) {}
             })
             .catch(function (err) {
                 try { console.warn('[trakt_v3] episodes sync failed for ' + tmdb, err); } catch (_) {}
-                // Сбрасываем флаг — попробуем ещё раз при следующем open
                 episodesSynced[tmdb] = false;
             });
+    }
+
+    // Регистрируем hashToEpisode для ВСЕХ эпизодов всех сезонов карточки.
+    // Идём по seasons[].episode_count (если есть). Если нет — по number_of_seasons и
+    // дефолтному 30 эпизодов на сезон (с запасом).
+    function registerAllEpisodeHashes(cardData, originalName) {
+        if (!originalName) return;
+        var tmdb = cardData.id || (cardData.ids && cardData.ids.tmdb);
+        if (!tmdb) return;
+        var seasons = Array.isArray(cardData.seasons) ? cardData.seasons : [];
+        if (seasons.length) {
+            seasons.forEach(function (s) {
+                var sn = s.season_number;
+                var count = s.episode_count || 30;
+                if (sn === undefined) return;
+                for (var ep = 1; ep <= count; ep++) {
+                    var h = episodeHash(originalName, sn, ep);
+                    if (h) hashToEpisode[h] = { tmdb: tmdb, season: sn, episode: ep };
+                }
+            });
+        } else {
+            // fallback — number_of_seasons × 30 эпизодов
+            var ns = cardData.number_of_seasons || 1;
+            for (var s = 1; s <= ns; s++) {
+                for (var ep2 = 1; ep2 <= 30; ep2++) {
+                    var h2 = episodeHash(originalName, s, ep2);
+                    if (h2) hashToEpisode[h2] = { tmdb: tmdb, season: s, episode: ep2 };
+                }
+            }
+        }
+    }
+
+    // Listener для Timeline.update: ловит ручные клики юзера на эпизод.
+    // percent === 0 → unwatched, иначе → watched.
+    function installTimelineUpdateHook() {
+        if (!window.Lampa || !Lampa.Timeline || !Lampa.Timeline.listener) return;
+        if (window.__trakt_v3_timeline_hook_installed) return;
+        window.__trakt_v3_timeline_hook_installed = true;
+        Lampa.Timeline.listener.follow('update', function (e) {
+            try {
+                var data = e && e.data;
+                if (!data || !data.hash) return;
+                var hash = data.hash;
+                // Игнорируем events которые мы сами породили
+                if (wasRecentlyPushed(hash)) return;
+                var info = hashToEpisode[hash];
+                if (!info) return; // не наш эпизод (фильм, или не-зарегистрированное шоу)
+                var percent = (data.road && Number(data.road.percent)) || 0;
+                var watched = percent > 0;
+                serverPost('/api/episode/watch', {
+                    tmdb: info.tmdb,
+                    season: info.season,
+                    episode: info.episode,
+                    watched: watched
+                }).then(function (resp) {
+                    if (resp && resp.ok) {
+                        try { console.log('[trakt_v3] episode ' + (watched ? 'watched' : 'unwatched') + ' tmdb=' + info.tmdb + ' S' + info.season + 'E' + info.episode); } catch (_) {}
+                    } else {
+                        notify('Ошибка отметки эпизода: ' + ((resp && resp.error) || 'unknown'));
+                    }
+                }).catch(function (err) {
+                    try { console.warn('[trakt_v3] episode/watch failed', err); } catch (_) {}
+                    notify('Сервер недоступен');
+                });
+            } catch (err) {
+                try { console.warn('[trakt_v3] Timeline.update handler err', err); } catch (_) {}
+            }
+        });
+        try { console.log('[trakt_v3] Timeline.update hook installed'); } catch (_) {}
     }
 
     // Hook на open full-карточки. Lampa шлёт event 'full' с типом 'complite'
@@ -833,6 +943,7 @@
 
         installHoverLongHook();
         installFullCardHook();
+        installTimelineUpdateHook();
 
         // Прелоад: тянем /api/folders в фон, чтобы CARDS_INDEX и CUSTOM_LISTS были
         // готовы к моменту первого long-tap'а (даже если юзер не открыл наш Activity).
