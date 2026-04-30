@@ -208,7 +208,9 @@ async function performSync(activities) {
     // Per-show progress fetch — только если эпизоды менялись или у каких-то watched-shows нет progress
     const epChanged = activitiesEpisodesChanged(_state.last_activities, activities);
     const hasMissing = Object.values(cards).some(c =>
-        c.type === 'show' && c.in_watched && !c.progress
+        c.type === 'show' && c.in_watched && (
+            !c.progress || c.progress.episodes_watched === undefined
+        )
     );
     if (epChanged || hasMissing || !_state.snapshot) {
         await fetchProgressForWatched(cards, _state.log);

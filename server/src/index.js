@@ -11,7 +11,7 @@ import syncRoutes from './routes/sync.js';
 import tapRoutes from './routes/tap.js';
 import episodesRoutes from './routes/episodes.js';
 
-const VERSION = '0.4.5';
+const VERSION = '0.4.6';
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || '0.0.0.0';
 
