@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.1.4';
+    var VERSION = '0.1.5';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -517,9 +517,11 @@
         window.__trakt_v3_full_hook_installed = true;
         Lampa.Listener.follow('full', function (e) {
             if (!e) return;
-            if (e.type === 'complite' || e.type === 'complete') {
-                var data = e.data && (e.data.movie || e.data);
-                if (data) syncEpisodesForCard(data);
+            // Lampa src/components/full.js шлёт type:'build' когда full-карточка
+            // построена и видна. Также есть 'start' (юзер начал смотреть) и
+            // 'complite' (завершил) — для D1c.
+            if (e.type === 'build') {
+                if (e.data) syncEpisodesForCard(e.data);
             }
         });
         try { console.log('[trakt_v3] Lampa.Listener.full hook installed'); } catch (_) {}
