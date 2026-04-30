@@ -73,7 +73,7 @@ function snapshotNeedsMigration(snap) {
         if (c.in_watchlist && c.listed_at === undefined) return true;
         if (c.in_watched && c.last_watched_at === undefined) return true;
         // v0.4.5: добавлен episodes_watched (детально по эпизодам)
-        if (c.type === 'show' && c.in_watched && c.progress && c.progress.episodes_watched === undefined) return true;
+        if (c.type === 'show' && c.in_watched && c.progress && c.progress.episodes_aired === undefined) return true;
     }
     return false;
 }
@@ -130,17 +130,22 @@ async function fetchProgressForWatched(cards, log) {
             const c = targets[i++];
             try {
                 const p = await trakt.progressWatched(c.trakt_id);
-                // Детальный массив эпизодов: { 'S01E03': last_watched_at, ... }
-                // Хранится compact-форматом для D1a (Lampa.Timeline.update).
-                const episodes_watched = {};
+                // Map ВСЕХ aired эпизодов: { 'S01E01': last_watched_at_or_null }.
+                // null = aired но не watched. timestamp = watched.
+                // Хранится для D1a (Lampa.Timeline.update пушит percent: 95 для watched
+                // и percent: 0 для unwatched-but-aired).
+                const episodes_aired = {};
                 if (Array.isArray(p.seasons)) {
                     for (const s of p.seasons) {
                         if (!s || !Array.isArray(s.episodes)) continue;
                         for (const e of s.episodes) {
-                            if (!e || !e.completed) continue;
+                            if (!e || typeof e.number !== 'number') continue;
                             const sn = String(s.number).padStart(2, '0');
                             const en = String(e.number).padStart(2, '0');
-                            episodes_watched['S' + sn + 'E' + en] = e.last_watched_at || p.last_watched_at || null;
+                            const key = 'S' + sn + 'E' + en;
+                            episodes_aired[key] = e.completed
+                                ? (e.last_watched_at || p.last_watched_at || null)
+                                : null;
                         }
                     }
                 }
@@ -149,7 +154,7 @@ async function fetchProgressForWatched(cards, log) {
                     aired: Number(p.aired) || 0,
                     next_aired_at: p.next_episode?.first_aired || null,
                     last_watched_at: p.last_watched_at || null,
-                    episodes_watched
+                    episodes_aired
                 };
             } catch (err) {
                 failed++;
@@ -209,7 +214,7 @@ async function performSync(activities) {
     const epChanged = activitiesEpisodesChanged(_state.last_activities, activities);
     const hasMissing = Object.values(cards).some(c =>
         c.type === 'show' && c.in_watched && (
-            !c.progress || c.progress.episodes_watched === undefined
+            !c.progress || c.progress.episodes_aired === undefined
         )
     );
     if (epChanged || hasMissing || !_state.snapshot) {

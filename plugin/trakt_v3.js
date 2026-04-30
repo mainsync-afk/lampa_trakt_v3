@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.1.8';
+    var VERSION = '0.1.9';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -516,36 +516,26 @@
             .then(function (resp) {
                 if (!resp || !resp.ok) return;
                 var originalName = resp.original_name || cardData.original_name;
+                if (!originalName) return;
 
-                // Build set of watched (S,E) keys для быстрого lookup
-                var watchedSet = {};
-                (resp.episodes || []).forEach(function (e) {
-                    if (e && e.watched) {
-                        watchedSet[e.season + '.' + e.episode] = true;
-                    }
-                });
-
-                // Регистрируем hashes для ВСЕХ aired эпизодов в карточке
-                // (для D1b: ловим click на любом эпизоде, даже не-watched).
-                registerAllEpisodeHashes(cardData, originalName);
-
-                // Идём по всем зарегистрированным hashes этой карточки
-                // и пушим Timeline.update с правильным percent:
-                //   watched   → percent: 95 (Lampa отрисует маркер).
-                //   unwatched → percent: 0  (Lampa уберёт маркер, если был).
+                var episodes = resp.episodes || [];
                 var pushedWatched = 0, pushedUnwatched = 0;
-                for (var hash in hashToEpisode) {
-                    var info = hashToEpisode[hash];
-                    if (info.tmdb !== tmdb) continue;
-                    var key = info.season + '.' + info.episode;
-                    var isWatched = !!watchedSet[key];
-                    var percent = isWatched ? 95 : 0;
+
+                // Сервер возвращает ВСЕ aired (watched + not-watched aired) — это
+                // авторитетный список. Регистрируем hashes и пушим Timeline.update.
+                for (var i = 0; i < episodes.length; i++) {
+                    var e = episodes[i];
+                    if (!e) continue;
+                    var hash = episodeHash(originalName, e.season, e.episode);
+                    if (!hash) continue;
+                    hashToEpisode[hash] = { tmdb: tmdb, season: e.season, episode: e.episode };
+                    var percent = e.watched ? 95 : 0;
                     markPushed(hash);
                     try {
                         Lampa.Timeline.update({
                             hash: hash, percent: percent, time: 0, duration: 0, profile: 0
                         });
-                        if (isWatched) pushedWatched++; else pushedUnwatched++;
+                        if (e.watched) pushedWatched++; else pushedUnwatched++;
                     } catch (err) {
                         try { console.warn('[trakt_v3] Timeline.update failed', err); } catch (_) {}
                     }

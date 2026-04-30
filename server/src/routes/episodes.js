@@ -24,15 +24,16 @@ export default async function (app) {
             };
         }
 
-        const ew = card.progress?.episodes_watched || {};
-        const episodes = Object.entries(ew).map(([key, watched_at]) => {
-            // key = "S01E03" → season 1, episode 3
+        // Возвращаем ВСЕ aired эпизоды с watched-флагом (для regenerate всех hashes
+        // в плагине — как watched, так и unwatched).
+        const ea = card.progress?.episodes_aired || {};
+        const episodes = Object.entries(ea).map(([key, watched_at]) => {
             const m = key.match(/^S(\d+)E(\d+)$/);
             if (!m) return null;
             return {
                 season: Number(m[1]),
                 episode: Number(m[2]),
-                watched: true,
+                watched: watched_at !== null,
                 watched_at: watched_at || null
             };
         }).filter(Boolean);
