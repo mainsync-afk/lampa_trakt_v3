@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.1.16';
+    var VERSION = '0.1.18';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -1004,11 +1004,30 @@
         window.__trakt_v3_full_hook_installed = true;
         Lampa.Listener.follow('full', function (e) {
             if (!e) return;
+            // Diag: посмотреть всё, что приходит, до фильтрации.
+            try {
+                var d = e.data || {};
+                var dm = d.movie || (e.object && e.object.movie) || null;
+                console.log('[trakt_v3] full event:', e.type,
+                    '|e.data keys:', Object.keys(d || {}).join(','),
+                    '|d.id=', d.id,
+                    '|d.method=', d.method,
+                    '|d.original_title=', d.original_title,
+                    '|d.original_name=', d.original_name,
+                    '|d.movie?', !!d.movie,
+                    '|movie.id=', dm && dm.id,
+                    '|movie.original_title=', dm && dm.original_title,
+                    '|movie.original_name=', dm && dm.original_name);
+            } catch (_) {}
             // Lampa src/components/full.js шлёт type:'build' когда full-карточка
             // построена и видна. Также есть 'start' (юзер начал смотреть) и
             // 'complite' (завершил) — для D1c.
             if (e.type === 'build') {
-                if (e.data) syncEpisodesForCard(e.data);
+                // Lampa передаёт реальный movie-объект внутри e.data.movie (см.
+                // interface_mod.js: data.data.movie). Иногда поля дублируются
+                // на e.data, иногда нет. Используем .movie, fallback на e.data.
+                var cardData = (e.data && e.data.movie) || e.data;
+                if (cardData) syncEpisodesForCard(cardData);
             }
         });
         try { console.log('[trakt_v3] Lampa.Listener.full hook installed'); } catch (_) {}
