@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.1.13';
+    var VERSION = '0.1.14';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -764,12 +764,51 @@
                 + '.trakt-badge--returning{background:#fb8c00;}'
                 + '.trakt-badge--watchlist{background:#fdd835;color:#222;}'
                 + '.trakt-badge--dropped{background:#757575;}'
-                + '.trakt-badge--collection{background:#8e24aa;}';
+                + '.trakt-badge--collection{background:#8e24aa;}'
+                // B1.5: progress-bar внизу .card__view
+                + '.trakt-progress{position:absolute;left:0;right:0;bottom:0;height:4px;background:rgba(0,0,0,0.45);z-index:30;pointer-events:none;overflow:hidden;}'
+                + '.trakt-progress__fill{height:100%;background:#1e88e5;transition:width .2s ease;}'
+                + '.trakt-progress--returning .trakt-progress__fill{background:#fb8c00;}';
             var st = document.createElement('style');
             st.id = 'trakt_v3_badges_style';
             st.textContent = css;
             document.head.appendChild(st);
         } catch (_) {}
+    }
+
+    // B1.5: progress-bar внизу превью.
+    // Возвращает {percent, variant} или null если бар показывать не надо.
+    //   variant: 'in_progress' (синий) | 'returning' (оранжевый)
+    // Логика visibility (согласовано с Eugene):
+    //   show: только если started и не completed/returning (бар несёт инфу)
+    //         completed = 0 → ничего; completed === aired → ничего (= returning или completed)
+    //   movie: только paused-position 3..79% (артефакт открытия / уже watched)
+    function computeProgressBar(state, type) {
+        if (!state) return null;
+        if (type === 'show') {
+            if (state.trakt_status === 'returning' || state.trakt_status === 'completed' || state.in_watched) return null;
+            var p = state.progress;
+            if (!p || !p.aired) return null;
+            if (p.completed <= 0 || p.completed >= p.aired) return null;
+            var pct = Math.round((p.completed / p.aired) * 100);
+            return { percent: Math.max(2, Math.min(98, pct)), variant: 'in_progress' };
+        }
+        if (type === 'movie') {
+            if (state.in_watched) return null;
+            var mp = state.movie_progress;
+            if (!mp || !Number.isFinite(mp.percent)) return null;
+            if (mp.percent < 3 || mp.percent >= 80) return null;
+            return { percent: Math.round(mp.percent), variant: 'in_progress' };
+        }
+        return null;
+    }
+
+    function buildProgressBarHtml(bar) {
+        if (!bar) return '';
+        var vCls = bar.variant === 'returning' ? ' trakt-progress--returning' : '';
+        return '<div class="trakt-progress' + vCls + '" data-trakt-progress="1">'
+             + '<div class="trakt-progress__fill" style="width:' + bar.percent + '%"></div>'
+             + '</div>';
     }
 
     function buildBadgesHtml(state) {
@@ -814,11 +853,18 @@
         // у него уже position:relative.
         var host = (cardEl.querySelector ? cardEl.querySelector('.card__view') : null) || cardEl;
         if (!host) return;
-        // Удаляем старый стек (re-render после optimistic update / повторной обработки).
-        var prev = host.querySelector ? host.querySelector(':scope > [data-trakt-badges]') : null;
-        if (prev && prev.parentNode) prev.parentNode.removeChild(prev);
+        // Удаляем старые оверлеи (re-render после optimistic update / повторной обработки).
+        var prevB = host.querySelector ? host.querySelector(':scope > [data-trakt-badges]') : null;
+        if (prevB && prevB.parentNode) prevB.parentNode.removeChild(prevB);
+        var prevP = host.querySelector ? host.querySelector(':scope > [data-trakt-progress]') : null;
+        if (prevP && prevP.parentNode) prevP.parentNode.removeChild(prevP);
         if (!state) return;
-        var html = buildBadgesHtml(state);
+        // Type для progress-расчёта берём по тому же признаку, что getCardMeta.
+        var meta = getCardMeta(cardEl);
+        var type = meta ? meta.type : null;
+        var bar = computeProgressBar(state, type);
+
+        var html = buildBadgesHtml(state) + buildProgressBarHtml(bar);
         if (!html) return;
         // Гарантируем relative у host (на случай если Lampa-стиль не задал).
         try {

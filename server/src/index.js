@@ -15,7 +15,7 @@ import movieRoutes from './routes/movie.js';
 import progressRoutes from './routes/progress.js';
 import statesRoutes from './routes/states.js';
 
-const VERSION = '0.4.14';
+const VERSION = '0.4.15';
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || '0.0.0.0';
 
