@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.1.12';
+    var VERSION = '0.1.13';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -785,19 +785,27 @@
         return '<div class="trakt-badges" data-trakt-badges="1">' + html + '</div>';
     }
 
-    // Определяем тип карточки по DOM-атрибутам/классам (interface_mod.js-стиль).
-    // У DOM нет card-object, поэтому используем data-card_type/data-type/класс
-    // .card--tv, fallback пробует оба namespace в STATES_INDEX.
-    function lookupStateByCardEl(cardEl) {
+    // Получить (tmdb, type) карточки. Канонический способ в Lampa — DOM-нода
+    // `.card` имеет property `.card_data` с полным объектом (см. rate.js):
+    //   data.id          → TMDB id
+    //   data.seasons / data.first_air_date / data.original_name → признаки tv
+    // data-id атрибут на .card часто отсутствует.
+    function getCardMeta(cardEl) {
         if (!cardEl) return null;
-        var tmdb = cardEl.getAttribute && (cardEl.getAttribute('data-id') || cardEl.getAttribute('id'));
-        if (!tmdb) return null;
-        // Lampa-классификаторы типа карточки.
-        var ct = (cardEl.getAttribute('data-card_type') || cardEl.getAttribute('data-type') || '').toLowerCase();
-        var isTv = ct === 'tv' || ct === 'serial' || (cardEl.classList && cardEl.classList.contains('card--tv'));
-        var k1 = (isTv ? 'show:' : 'movie:') + tmdb;
-        var k2 = (isTv ? 'movie:' : 'show:') + tmdb;
-        return STATES_INDEX[k1] || STATES_INDEX[k2] || null;
+        var data = cardEl.card_data;
+        if (!data || !data.id) return null;
+        var isTv = !!(data.seasons || data.first_air_date || data.original_name
+                      || data.number_of_seasons || data.episode_run_time
+                      || data.method === 'tv' || data.card_type === 'tv');
+        return { tmdb: String(data.id), type: isTv ? 'show' : 'movie' };
+    }
+
+    function lookupStateByCardEl(cardEl) {
+        var meta = getCardMeta(cardEl);
+        if (!meta) return null;
+        var primary = meta.type + ':' + meta.tmdb;
+        var fallback = (meta.type === 'show' ? 'movie:' : 'show:') + meta.tmdb;
+        return STATES_INDEX[primary] || STATES_INDEX[fallback] || null;
     }
 
     function applyBadgesToCardEl(cardEl, state) {
@@ -824,9 +832,13 @@
     // Вызывается после optimistic update: новое состояние сразу видно.
     function refreshBadgesForTmdb(tmdb) {
         try {
-            var nodes = document.querySelectorAll('.card[data-id="' + tmdb + '"]');
+            var t = String(tmdb);
+            var nodes = document.querySelectorAll('.card');
             for (var i = 0; i < nodes.length; i++) {
-                applyBadgesToCardEl(nodes[i], lookupStateByCardEl(nodes[i]));
+                var d = nodes[i].card_data;
+                if (d && String(d.id) === t) {
+                    applyBadgesToCardEl(nodes[i], lookupStateByCardEl(nodes[i]));
+                }
             }
         } catch (_) {}
     }
@@ -841,7 +853,7 @@
     // Один проход по всем .card в DOM (initial pass + safety net).
     function processAllCards() {
         try {
-            var nodes = document.querySelectorAll('.card[data-id]');
+            var nodes = document.querySelectorAll('.card');
             for (var i = 0; i < nodes.length; i++) processCardEl(nodes[i]);
         } catch (_) {}
     }
@@ -877,10 +889,10 @@
                     for (var j = 0; j < m.addedNodes.length; j++) {
                         var n = m.addedNodes[j];
                         if (n.nodeType !== 1) continue;
-                        if (n.classList && n.classList.contains('card') && n.getAttribute('data-id')) {
+                        if (n.classList && n.classList.contains('card')) {
                             schedule(n);
                         } else if (n.querySelectorAll) {
-                            var inner = n.querySelectorAll('.card[data-id]');
+                            var inner = n.querySelectorAll('.card');
                             for (var k = 0; k < inner.length; k++) schedule(inner[k]);
                         }
                     }
