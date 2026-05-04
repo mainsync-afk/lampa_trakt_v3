@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.1.11';
+    var VERSION = '0.1.12';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -785,48 +785,34 @@
         return '<div class="trakt-badges" data-trakt-badges="1">' + html + '</div>';
     }
 
-    function lookupStateForCard(card) {
-        if (!card) return null;
-        var tmdb = card.id || (card.ids && card.ids.tmdb);
+    // Определяем тип карточки по DOM-атрибутам/классам (interface_mod.js-стиль).
+    // У DOM нет card-object, поэтому используем data-card_type/data-type/класс
+    // .card--tv, fallback пробует оба namespace в STATES_INDEX.
+    function lookupStateByCardEl(cardEl) {
+        if (!cardEl) return null;
+        var tmdb = cardEl.getAttribute && (cardEl.getAttribute('data-id') || cardEl.getAttribute('id'));
         if (!tmdb) return null;
-        var type = (card.method === 'tv' || card.card_type === 'tv'
-                    || card.original_name || card.first_air_date
-                    || card.number_of_seasons || card.episode_run_time)
-                ? 'show' : 'movie';
-        var k = type + ':' + tmdb;
-        var st = STATES_INDEX[k];
-        if (st) return st;
-        // Если type "тощий" — пробуем оба namespace, отдаём что нашли первым.
-        return STATES_INDEX['movie:' + tmdb] || STATES_INDEX['show:' + tmdb] || null;
+        // Lampa-классификаторы типа карточки.
+        var ct = (cardEl.getAttribute('data-card_type') || cardEl.getAttribute('data-type') || '').toLowerCase();
+        var isTv = ct === 'tv' || ct === 'serial' || (cardEl.classList && cardEl.classList.contains('card--tv'));
+        var k1 = (isTv ? 'show:' : 'movie:') + tmdb;
+        var k2 = (isTv ? 'movie:' : 'show:') + tmdb;
+        return STATES_INDEX[k1] || STATES_INDEX[k2] || null;
     }
 
-    // Возвращает плагинно-удобный root DOM-элемент для card-плитки.
-    // Lampa шлёт 'element' либо как jQuery (имеет .get / .find), либо как HTMLElement.
-    function unwrapEl(el) {
-        if (!el) return null;
-        if (el.nodeType === 1) return el;
-        if (typeof el.get === 'function') {
-            try { return el.get(0) || null; } catch (_) { return null; }
-        }
-        if (el[0] && el[0].nodeType === 1) return el[0];
-        return null;
-    }
-
-    function applyBadgesToElement(rawEl, state) {
-        var root = unwrapEl(rawEl);
-        if (!root) return;
-        // Поднимаемся к контейнеру с position:relative — обычно сам .card.
-        // Внутри Lampa структура: .card > .card__view (poster wrapper) > .card__img + .card__icons …
-        var host = root.classList && root.classList.contains('card__view')
-            ? root
-            : (root.querySelector ? root.querySelector('.card__view') : null) || root;
+    function applyBadgesToCardEl(cardEl, state) {
+        if (!cardEl) return;
+        // Контейнер для оверлея — .card__view (poster wrapper). Внутри Lampa
+        // у него уже position:relative.
+        var host = (cardEl.querySelector ? cardEl.querySelector('.card__view') : null) || cardEl;
         if (!host) return;
-        // Удаляем старый стек (re-render после optimistic update / повторного build).
+        // Удаляем старый стек (re-render после optimistic update / повторной обработки).
         var prev = host.querySelector ? host.querySelector(':scope > [data-trakt-badges]') : null;
         if (prev && prev.parentNode) prev.parentNode.removeChild(prev);
+        if (!state) return;
         var html = buildBadgesHtml(state);
         if (!html) return;
-        // Гарантируем position:relative у host (на случай если Lampa-стиль не задал).
+        // Гарантируем relative у host (на случай если Lampa-стиль не задал).
         try {
             var cs = window.getComputedStyle(host);
             if (cs && cs.position === 'static') host.style.position = 'relative';
@@ -840,32 +826,74 @@
         try {
             var nodes = document.querySelectorAll('.card[data-id="' + tmdb + '"]');
             for (var i = 0; i < nodes.length; i++) {
-                // У DOM-элемента нет card object. Берём STATES_INDEX напрямую.
-                var st = STATES_INDEX['movie:' + tmdb] || STATES_INDEX['show:' + tmdb];
-                applyBadgesToElement(nodes[i], st);
+                applyBadgesToCardEl(nodes[i], lookupStateByCardEl(nodes[i]));
             }
         } catch (_) {}
     }
 
+    // Обработать одну карточку — найти состояние и нарисовать badges.
+    function processCardEl(cardEl) {
+        if (!cardEl) return;
+        var st = lookupStateByCardEl(cardEl);
+        applyBadgesToCardEl(cardEl, st);
+    }
+
+    // Один проход по всем .card в DOM (initial pass + safety net).
+    function processAllCards() {
+        try {
+            var nodes = document.querySelectorAll('.card[data-id]');
+            for (var i = 0; i < nodes.length; i++) processCardEl(nodes[i]);
+        } catch (_) {}
+    }
+
+    // MutationObserver-паттерн (как у interface_mod.js): watch новые .card
+    // и батчево обрабатываем через rAF. Это надёжно работает на ВСЕХ страницах
+    // Lampa, без зависимости от существования 'card' event.
     function installCardBuildHook() {
-        if (!window.Lampa || !Lampa.Listener) return;
         if (window.__trakt_v3_card_hook_installed) return;
         window.__trakt_v3_card_hook_installed = true;
         ensureBadgesStyleInjected();
-        Lampa.Listener.follow('card', function (e) {
-            if (!e || e.type !== 'build') return;
-            try {
-                var card = e.object || e.data || e.card;
-                var element = e.element || e.body || e.target;
-                if (!card || !element) return;
-                var st = lookupStateForCard(card);
-                if (!st) return;
-                applyBadgesToElement(element, st);
-            } catch (err) {
-                try { console.warn('[trakt_v3] card-build badges err', err); } catch (_) {}
+
+        var pending = new Set();
+        var scheduled = false;
+        function flush() {
+            scheduled = false;
+            pending.forEach(processCardEl);
+            pending.clear();
+        }
+        function schedule(node) {
+            pending.add(node);
+            if (!scheduled) {
+                scheduled = true;
+                (window.requestAnimationFrame || function (cb) { setTimeout(cb, 16); })(flush);
             }
-        });
-        try { console.log('[trakt_v3] Lampa.Listener.card hook installed'); } catch (_) {}
+        }
+
+        try {
+            var obs = new MutationObserver(function (mutations) {
+                for (var i = 0; i < mutations.length; i++) {
+                    var m = mutations[i];
+                    if (!m.addedNodes || !m.addedNodes.length) continue;
+                    for (var j = 0; j < m.addedNodes.length; j++) {
+                        var n = m.addedNodes[j];
+                        if (n.nodeType !== 1) continue;
+                        if (n.classList && n.classList.contains('card') && n.getAttribute('data-id')) {
+                            schedule(n);
+                        } else if (n.querySelectorAll) {
+                            var inner = n.querySelectorAll('.card[data-id]');
+                            for (var k = 0; k < inner.length; k++) schedule(inner[k]);
+                        }
+                    }
+                }
+            });
+            obs.observe(document.body, { childList: true, subtree: true });
+        } catch (err) {
+            try { console.warn('[trakt_v3] MutationObserver setup err', err); } catch (_) {}
+        }
+
+        // Initial pass — для карточек, отрисованных до установки наблюдателя.
+        processAllCards();
+        try { console.log('[trakt_v3] card-badges observer installed'); } catch (_) {}
     }
 
     function fetchCardStates() {
@@ -881,6 +909,8 @@
             }
             STATES_INDEX = next;
             try { console.log('[trakt_v3] STATES_INDEX loaded, items=' + Object.keys(next).length); } catch (_) {}
+            // STATES мог прийти после того как карточки уже отрисованы — подкрасить.
+            try { processAllCards(); } catch (_) {}
         }).catch(function (err) {
             try { console.warn('[trakt_v3] fetchCardStates failed', err); } catch (_) {}
         });
