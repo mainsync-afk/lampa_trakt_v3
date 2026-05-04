@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.1.18';
+    var VERSION = '0.1.19';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -1023,11 +1023,21 @@
             // построена и видна. Также есть 'start' (юзер начал смотреть) и
             // 'complite' (завершил) — для D1c.
             if (e.type === 'build') {
-                // Lampa передаёт реальный movie-объект внутри e.data.movie (см.
-                // interface_mod.js: data.data.movie). Иногда поля дублируются
-                // на e.data, иногда нет. Используем .movie, fallback на e.data.
-                var cardData = (e.data && e.data.movie) || e.data;
-                if (cardData) syncEpisodesForCard(cardData);
+                // Lampa разносит данные между e.data и e.data.movie:
+                //  - e.data.method='movie'/'tv' (иногда отсутствует в .movie)
+                //  - e.data.movie.original_title / original_name / id (полные TMDB)
+                // Мерджим (поля .movie приоритетнее, но method тащим из top-level).
+                if (e.data) {
+                    var top = e.data;
+                    var mv = e.data.movie || {};
+                    var cardData = {};
+                    for (var kT in top) if (Object.prototype.hasOwnProperty.call(top, kT)) cardData[kT] = top[kT];
+                    for (var kM in mv)  if (Object.prototype.hasOwnProperty.call(mv, kM))  cardData[kM]  = mv[kM];
+                    // method иногда есть только в top — гарантируем
+                    if (!cardData.method && top.method) cardData.method = top.method;
+                    if (!cardData.id && top.id) cardData.id = top.id;
+                    syncEpisodesForCard(cardData);
+                }
             }
         });
         try { console.log('[trakt_v3] Lampa.Listener.full hook installed'); } catch (_) {}
