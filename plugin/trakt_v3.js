@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.1.14';
+    var VERSION = '0.1.15';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -1322,6 +1322,20 @@
         installCardBuildHook();
         // Загружаем легковесную карту состояний для overlay-значков B1.
         fetchCardStates();
+
+        // Debug-handle для DevTools: window.trakt_v3.STATES_INDEX, .processAllCards(),
+        // .fetchCardStates(). Не используется в проде, только для диагностики.
+        try {
+            window.trakt_v3 = {
+                version: VERSION,
+                get STATES_INDEX() { return STATES_INDEX; },
+                get CARDS_INDEX() { return CARDS_INDEX; },
+                processAllCards: processAllCards,
+                fetchCardStates: fetchCardStates,
+                computeProgressBar: computeProgressBar,
+                lookupStateByCardEl: lookupStateByCardEl
+            };
+        } catch (_) {}
 
         // Прелоад: тянем /api/folders в фон, чтобы CARDS_INDEX и CUSTOM_LISTS были
         // готовы к моменту первого long-tap'а (даже если юзер не открыл наш Activity).
