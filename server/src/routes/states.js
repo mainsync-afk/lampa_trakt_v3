@@ -40,6 +40,35 @@ export default async function (app) {
             }
             out[id][c.type] = entry;
         }
+
+        // Карточки которых нет в Trakt'е (snap.cards), но юзер их смотрел
+        // через встроенный плеер (Timeline.update → POST /api/progress).
+        // Добавляем минимальный entry с movie_progress / показом эпизода —
+        // чтобы overlay-бар на превью отрисовался везде в Lampa.
+        for (const k in progressFiles) {
+            const pf = progressFiles[k];
+            if (!pf || !Number.isFinite(pf.percent)) continue;
+            // movie:<tmdb>
+            const mm = k.match(/^movie:(\d+)$/);
+            if (mm) {
+                const id = mm[1];
+                if (!out[id]) out[id] = {};
+                if (!out[id].movie) {
+                    out[id].movie = {
+                        trakt_status: null,
+                        in_watchlist: false,
+                        in_watched: false,
+                        in_collection: false,
+                        movie_progress: { percent: pf.percent }
+                    };
+                }
+                continue;
+            }
+            // show:<tmdb>:S01E05 — эпизод. Прогресс-бар на превью шоу пока не
+            // показываем (только полный show.completed/aired). Эпизодные
+            // прогресы потом — для overlay'я внутри карточки сериала.
+        }
+
         return {
             generated_at: snap.meta?.generated_at || null,
             cards: out
