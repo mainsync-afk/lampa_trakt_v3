@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.1.10';
+    var VERSION = '0.1.11';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -149,6 +149,10 @@
     // CARDS_INDEX: 'movie:603' / 'show:1399' → { in_watchlist, in_watched, in_collection, in_lists:[], status }.
     // Заполняется при каждом fetch /api/folders + optimistic-update после POST.
     var CARDS_INDEX = {};
+    // STATES_INDEX: тот же ключ → {trakt_status, in_watchlist, in_watched, in_collection}.
+    // Источник — light-endpoint /api/cards/states. Используется для overlay-значков
+    // на превью КАРТОЧЕК (B1) — везде в Lampa, включая главную/поиск/source-плагины.
+    var STATES_INDEX = {};
     // Список custom lists (id, slug, title) для динамической регистрации в sidebar.
     var CUSTOM_LISTS = [];
     // Карточка над которой открыто sidebar-меню. Ставится в hover:long listener.
@@ -304,6 +308,11 @@
                     // Обновляем подписи sidebar (если юзер сразу снова откроет sidebar
                     // на той же карточке — увидит свежие ☐/☑).
                     updateAllOurPluginNames(object);
+                    // B1: optimistic-обновление overlay-значков на превью.
+                    applyOptimisticStateForTap(item.action, type, tmdb);
+                    // Догружаем свежий полный snapshot из сервера, как только сервер
+                    // переклассифицирует (in_progress→completed→returning ит.п.).
+                    setTimeout(function () { fetchCardStates(); }, 1500);
                     // НЕ делаем refreshScreenIfActive() — экран не мигает,
                     // карточка переедет в нужный ряд при следующем заходе или sync.
                     // Когда сделаем иконки на превьюшках — они будут мгновенно
@@ -721,6 +730,182 @@
         try { console.log('[trakt_v3] Timeline.update hook installed'); } catch (_) {}
     }
 
+    // ────────────────────────────────────────────────────────────────────
+    // B1: Overlay-значки состояния на превью КАРТОЧЕК (везде в Lampa).
+    //
+    // Источник данных — STATES_INDEX (light-fetch /api/cards/states).
+    // Hook — Lampa.Listener.follow('card', e => e.type === 'build') шлёт каждую
+    // отрендеренную плитку (главная, ряды нашего плагина, поиск, source-плагины).
+    //
+    // Стек значков расположен top-right. Native Lampa-значок (watchlist
+    // bookmark) Lampa тоже рисует в углу — пока не перекрываем (Eugene:
+    // «top-right свободен, потом будем думать»). Если визуально каша —
+    // добавим .card__icons{display:none} в инжект.
+    // ────────────────────────────────────────────────────────────────────
+    var BADGE_DEFS = [
+        // priority по визуальной значимости (сверху-вниз в стеке)
+        { key: 'returning',   symbol: 'N',  cls: 'returning',   test: function (s) { return s.trakt_status === 'returning'; } },
+        { key: 'in_progress', symbol: '▶', cls: 'in_progress', test: function (s) { return s.trakt_status === 'in_progress' || s.trakt_status === 'continue'; } },
+        { key: 'completed',   symbol: '✓', cls: 'completed',   test: function (s) { return s.trakt_status === 'completed' || (s.in_watched && !s.trakt_status); } },
+        { key: 'dropped',     symbol: '×', cls: 'dropped',     test: function (s) { return s.trakt_status === 'dropped'; } },
+        { key: 'watchlist',   symbol: '★', cls: 'watchlist',   test: function (s) { return !!s.in_watchlist; } },
+        { key: 'collection',  symbol: '▣', cls: 'collection',  test: function (s) { return !!s.in_collection; } }
+    ];
+
+    function ensureBadgesStyleInjected() {
+        if (window.__trakt_v3_badges_style_injected) return;
+        window.__trakt_v3_badges_style_injected = true;
+        try {
+            var css = ''
+                + '.trakt-badges{position:absolute;top:0.4em;right:0.4em;display:flex;flex-direction:column;gap:0.25em;z-index:30;pointer-events:none;}'
+                + '.trakt-badge{width:1.7em;height:1.7em;border-radius:50%;color:#fff;display:flex;align-items:center;justify-content:center;font-size:0.95em;line-height:1;font-weight:700;box-shadow:0 1px 3px rgba(0,0,0,.6);font-family:Arial,sans-serif;}'
+                + '.trakt-badge--completed{background:#43a047;}'
+                + '.trakt-badge--in_progress{background:#1e88e5;}'
+                + '.trakt-badge--returning{background:#fb8c00;}'
+                + '.trakt-badge--watchlist{background:#fdd835;color:#222;}'
+                + '.trakt-badge--dropped{background:#757575;}'
+                + '.trakt-badge--collection{background:#8e24aa;}';
+            var st = document.createElement('style');
+            st.id = 'trakt_v3_badges_style';
+            st.textContent = css;
+            document.head.appendChild(st);
+        } catch (_) {}
+    }
+
+    function buildBadgesHtml(state) {
+        if (!state) return '';
+        var html = '';
+        for (var i = 0; i < BADGE_DEFS.length; i++) {
+            var d = BADGE_DEFS[i];
+            if (d.test(state)) {
+                html += '<span class="trakt-badge trakt-badge--' + d.cls + '">' + d.symbol + '</span>';
+            }
+        }
+        if (!html) return '';
+        return '<div class="trakt-badges" data-trakt-badges="1">' + html + '</div>';
+    }
+
+    function lookupStateForCard(card) {
+        if (!card) return null;
+        var tmdb = card.id || (card.ids && card.ids.tmdb);
+        if (!tmdb) return null;
+        var type = (card.method === 'tv' || card.card_type === 'tv'
+                    || card.original_name || card.first_air_date
+                    || card.number_of_seasons || card.episode_run_time)
+                ? 'show' : 'movie';
+        var k = type + ':' + tmdb;
+        var st = STATES_INDEX[k];
+        if (st) return st;
+        // Если type "тощий" — пробуем оба namespace, отдаём что нашли первым.
+        return STATES_INDEX['movie:' + tmdb] || STATES_INDEX['show:' + tmdb] || null;
+    }
+
+    // Возвращает плагинно-удобный root DOM-элемент для card-плитки.
+    // Lampa шлёт 'element' либо как jQuery (имеет .get / .find), либо как HTMLElement.
+    function unwrapEl(el) {
+        if (!el) return null;
+        if (el.nodeType === 1) return el;
+        if (typeof el.get === 'function') {
+            try { return el.get(0) || null; } catch (_) { return null; }
+        }
+        if (el[0] && el[0].nodeType === 1) return el[0];
+        return null;
+    }
+
+    function applyBadgesToElement(rawEl, state) {
+        var root = unwrapEl(rawEl);
+        if (!root) return;
+        // Поднимаемся к контейнеру с position:relative — обычно сам .card.
+        // Внутри Lampa структура: .card > .card__view (poster wrapper) > .card__img + .card__icons …
+        var host = root.classList && root.classList.contains('card__view')
+            ? root
+            : (root.querySelector ? root.querySelector('.card__view') : null) || root;
+        if (!host) return;
+        // Удаляем старый стек (re-render после optimistic update / повторного build).
+        var prev = host.querySelector ? host.querySelector(':scope > [data-trakt-badges]') : null;
+        if (prev && prev.parentNode) prev.parentNode.removeChild(prev);
+        var html = buildBadgesHtml(state);
+        if (!html) return;
+        // Гарантируем position:relative у host (на случай если Lampa-стиль не задал).
+        try {
+            var cs = window.getComputedStyle(host);
+            if (cs && cs.position === 'static') host.style.position = 'relative';
+        } catch (_) {}
+        host.insertAdjacentHTML('beforeend', html);
+    }
+
+    // Перерисовать badges на всех уже отрендеренных плитках с этим tmdb.
+    // Вызывается после optimistic update: новое состояние сразу видно.
+    function refreshBadgesForTmdb(tmdb) {
+        try {
+            var nodes = document.querySelectorAll('.card[data-id="' + tmdb + '"]');
+            for (var i = 0; i < nodes.length; i++) {
+                // У DOM-элемента нет card object. Берём STATES_INDEX напрямую.
+                var st = STATES_INDEX['movie:' + tmdb] || STATES_INDEX['show:' + tmdb];
+                applyBadgesToElement(nodes[i], st);
+            }
+        } catch (_) {}
+    }
+
+    function installCardBuildHook() {
+        if (!window.Lampa || !Lampa.Listener) return;
+        if (window.__trakt_v3_card_hook_installed) return;
+        window.__trakt_v3_card_hook_installed = true;
+        ensureBadgesStyleInjected();
+        Lampa.Listener.follow('card', function (e) {
+            if (!e || e.type !== 'build') return;
+            try {
+                var card = e.object || e.data || e.card;
+                var element = e.element || e.body || e.target;
+                if (!card || !element) return;
+                var st = lookupStateForCard(card);
+                if (!st) return;
+                applyBadgesToElement(element, st);
+            } catch (err) {
+                try { console.warn('[trakt_v3] card-build badges err', err); } catch (_) {}
+            }
+        });
+        try { console.log('[trakt_v3] Lampa.Listener.card hook installed'); } catch (_) {}
+    }
+
+    function fetchCardStates() {
+        return serverGet('/api/cards/states').then(function (resp) {
+            if (!resp || !resp.cards) return;
+            // Преобразуем {tmdb: {movie?: state, show?: state}} в наш плоский map.
+            var next = {};
+            for (var tmdb in resp.cards) {
+                if (!Object.prototype.hasOwnProperty.call(resp.cards, tmdb)) continue;
+                var entry = resp.cards[tmdb];
+                if (entry.movie) next['movie:' + tmdb] = entry.movie;
+                if (entry.show)  next['show:'  + tmdb] = entry.show;
+            }
+            STATES_INDEX = next;
+            try { console.log('[trakt_v3] STATES_INDEX loaded, items=' + Object.keys(next).length); } catch (_) {}
+        }).catch(function (err) {
+            try { console.warn('[trakt_v3] fetchCardStates failed', err); } catch (_) {}
+        });
+    }
+
+    // После optimistic update sidebar-tap'а — обновляем STATES_INDEX и
+    // перерисовываем badges на видимых карточках.
+    function applyOptimisticStateForTap(action, type, tmdb) {
+        var k = type + ':' + tmdb;
+        if (!STATES_INDEX[k]) {
+            STATES_INDEX[k] = {
+                trakt_status: null, in_watchlist: false, in_watched: false, in_collection: false
+            };
+        }
+        var s = STATES_INDEX[k];
+        if (action === 'watchlist') s.in_watchlist = !s.in_watchlist;
+        else if (action === 'completed') {
+            s.in_watched = !s.in_watched;
+            // trakt_status пересчитается на сервере — обнулим до следующего fetch.
+            s.trakt_status = s.in_watched ? 'completed' : null;
+        }
+        // Для list:N в STATES не храним (не отображаем как badge) — пропуск.
+        refreshBadgesForTmdb(tmdb);
+    }
+
     // Hook на open full-карточки. Lampa шлёт event 'full' с типом 'complite'
     // когда карточка собрана и видна юзеру.
     function installFullCardHook() {
@@ -1046,6 +1231,9 @@
         installHoverLongHook();
         installFullCardHook();
         installTimelineUpdateHook();
+        installCardBuildHook();
+        // Загружаем легковесную карту состояний для overlay-значков B1.
+        fetchCardStates();
 
         // Прелоад: тянем /api/folders в фон, чтобы CARDS_INDEX и CUSTOM_LISTS были
         // готовы к моменту первого long-tap'а (даже если юзер не открыл наш Activity).
