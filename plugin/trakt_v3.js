@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.1.15';
+    var VERSION = '0.1.16';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -786,7 +786,9 @@
     function computeProgressBar(state, type) {
         if (!state) return null;
         if (type === 'show') {
-            if (state.trakt_status === 'returning' || state.trakt_status === 'completed' || state.in_watched) return null;
+            // Полагаемся ТОЛЬКО на trakt_status. in_watched часто true для continue
+            // (юзер смотрел всё, потом вышли новые эпизоды — classifier перевёл в continue).
+            if (state.trakt_status !== 'continue' && state.trakt_status !== 'in_progress') return null;
             var p = state.progress;
             if (!p || !p.aired) return null;
             if (p.completed <= 0 || p.completed >= p.aired) return null;
