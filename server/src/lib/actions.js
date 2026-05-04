@@ -57,6 +57,18 @@ function touchMeta(snap) {
 }
 
 // Базовый паттерн toggle для boolean-флагов (watchlist/watched/collection).
+function clearProgressForWatched(snap, type, tmdb) {
+    if (!snap.progress_files) return;
+    if (type === 'movie') {
+        delete snap.progress_files['movie:' + tmdb];
+    } else if (type === 'show') {
+        const prefix = 'show:' + tmdb + ':';
+        for (const k of Object.keys(snap.progress_files)) {
+            if (k.startsWith(prefix)) delete snap.progress_files[k];
+        }
+    }
+}
+
 async function toggleBool(tmdb, type, field, addFn, removeFn) {
     const snap = getSnapshot();
     if (!snap) throw new Error('no snapshot yet');
@@ -66,6 +78,11 @@ async function toggleBool(tmdb, type, field, addFn, removeFn) {
     const next = !prev;
 
     card[field] = next;
+    // D1d: если только что отметили watched — удаляем progress_files
+    // (карточка считается просмотренной, paused-position больше не нужен).
+    if (field === 'in_watched' && next === true) {
+        clearProgressForWatched(snap, type, tmdb);
+    }
     touchMeta(snap);
     await repo.writeSnapshot(snap);
 

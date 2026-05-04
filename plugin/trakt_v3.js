@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.1.9';
+    var VERSION = '0.1.10';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -485,6 +485,38 @@
         return t && (Date.now() - t < 3000);
     }
 
+    // D1d: throttled POST /api/progress per-hash (60 сек).
+    var lastProgressSent = {}; // hash → ms
+    var PROGRESS_THROTTLE_MS = 60000;
+    function sendProgressThrottled(hash, road) {
+        var now = Date.now();
+        if (lastProgressSent[hash] && (now - lastProgressSent[hash]) < PROGRESS_THROTTLE_MS) return;
+        lastProgressSent[hash] = now;
+
+        var time = Math.max(0, Math.floor(Number(road.time) || 0));
+        var duration = Math.max(0, Math.floor(Number(road.duration) || 0));
+        var percent = Math.max(0, Math.min(100, Number(road.percent) || 0));
+        if (duration <= 0) return;
+
+        // Найдём что это — эпизод или фильм.
+        var ep = hashToEpisode[hash];
+        if (ep) {
+            serverPost('/api/progress', {
+                tmdb: ep.tmdb, type: 'show',
+                season: ep.season, episode: ep.episode,
+                time: time, duration: duration, percent: percent
+            }).catch(function () { delete lastProgressSent[hash]; });
+            return;
+        }
+        var mv = hashToMovie[hash];
+        if (mv) {
+            serverPost('/api/progress', {
+                tmdb: mv.tmdb, type: 'movie',
+                time: time, duration: duration, percent: percent
+            }).catch(function () { delete lastProgressSent[hash]; });
+        }
+    }
+
     // hashToMovie: hash → {tmdb} для open карточки фильма.
     var hashToMovie = {};
 
@@ -494,13 +526,28 @@
         var method = cardData.method || cardData.card_type;
         if (!tmdb) return;
 
-        // Для фильма — регистрируем hash и выходим (нет episodes).
+        // Для фильма — регистрируем hash + подтянуть paused-position если есть.
         if (method === 'movie') {
             var origTitle = cardData.original_title || cardData.original_name || cardData.title;
             if (origTitle) {
                 var mh = utilsHash(origTitle);
                 hashToMovie[mh] = { tmdb: tmdb };
                 try { console.log('[trakt_v3] movie hash registered tmdb=' + tmdb + ' hash=' + mh); } catch (_) {}
+
+                // D1d: если у фильма paused-position — устанавливаем для resume.
+                serverGet('/api/card/' + tmdb + '?type=movie').then(function (resp) {
+                    if (!resp || !resp.movie_progress) return;
+                    var mp = resp.movie_progress;
+                    if (mp.time > 0 && mp.duration > 0) {
+                        markPushed(mh);
+                        try {
+                            Lampa.Timeline.update({
+                                hash: mh, percent: mp.percent, time: mp.time, duration: mp.duration, profile: 0
+                            });
+                            try { console.log('[trakt_v3] movie progress restored tmdb=' + tmdb + ' time=' + mp.time + ' duration=' + mp.duration); } catch (_) {}
+                        } catch (err) {}
+                    }
+                }).catch(function () {});
             }
             return;
         }
@@ -521,26 +568,37 @@
                 var episodes = resp.episodes || [];
                 var pushedWatched = 0, pushedUnwatched = 0;
 
-                // Сервер возвращает ВСЕ aired (watched + not-watched aired) — это
-                // авторитетный список. Регистрируем hashes и пушим Timeline.update.
+                // Сервер возвращает ВСЕ aired (watched + not-watched aired) + progress
+                // для эпизодов с paused-position. Регистрируем hashes, пушим Timeline.update.
+                var pushedProgress = 0;
                 for (var i = 0; i < episodes.length; i++) {
                     var e = episodes[i];
                     if (!e) continue;
                     var hash = episodeHash(originalName, e.season, e.episode);
                     if (!hash) continue;
                     hashToEpisode[hash] = { tmdb: tmdb, season: e.season, episode: e.episode };
-                    var percent = e.watched ? 95 : 0;
+                    var percent = 0, time = 0, duration = 0;
+                    if (e.watched) {
+                        percent = 95;
+                    } else if (e.progress && e.progress.time > 0 && e.progress.duration > 0) {
+                        // D1d: paused-эпизод — ставим resume position
+                        percent = e.progress.percent;
+                        time = e.progress.time;
+                        duration = e.progress.duration;
+                        pushedProgress++;
+                    }
                     markPushed(hash);
                     try {
                         Lampa.Timeline.update({
-                            hash: hash, percent: percent, time: 0, duration: 0, profile: 0
+                            hash: hash, percent: percent, time: time, duration: duration, profile: 0
                         });
-                        if (e.watched) pushedWatched++; else pushedUnwatched++;
+                        if (e.watched) pushedWatched++;
+                        else if (time === 0) pushedUnwatched++;
                     } catch (err) {
                         try { console.warn('[trakt_v3] Timeline.update failed', err); } catch (_) {}
                     }
                 }
-                try { console.log('[trakt_v3] episodes synced tmdb=' + tmdb + ' watched=' + pushedWatched + ' unwatched=' + pushedUnwatched); } catch (_) {}
+                try { console.log('[trakt_v3] episodes synced tmdb=' + tmdb + ' watched=' + pushedWatched + ' unwatched=' + pushedUnwatched + ' paused=' + pushedProgress); } catch (_) {}
             })
             .catch(function (err) {
                 try { console.warn('[trakt_v3] episodes sync failed for ' + tmdb, err); } catch (_) {}
@@ -606,9 +664,13 @@
                     // ручной клик: percent=95 → mark, percent=0 → unmark
                     watched = percent > 0;
                 } else {
-                    // play: mark watched только при достижении 80% (Trakt-стандарт).
-                    // ниже порога — игнорируем (cross-device прогресс будет в D1d).
-                    if (percent < 80) return;
+                    // play: при <80% — D1d cross-device progress (throttled POST).
+                    //       при >=80% — D1c mark watched (Trakt-стандарт).
+                    if (percent < 80) {
+                        // D1d: cross-device прогресс через наш сервер.
+                        sendProgressThrottled(hash, road);
+                        return;
+                    }
                     watched = true;
                 }
 

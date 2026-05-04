@@ -50,15 +50,20 @@ export default async function (app) {
             }
         }
 
-        // Optimistic update episodes_watched
+        // Optimistic update episodes_aired (наш текущий ключ — episodes_aired)
         if (!card.progress) card.progress = {};
-        if (!card.progress.episodes_watched) card.progress.episodes_watched = {};
+        if (!card.progress.episodes_aired) card.progress.episodes_aired = {};
         const epKey = 'S' + String(season).padStart(2, '0') + 'E' + String(episode).padStart(2, '0');
-        const prevValue = card.progress.episodes_watched[epKey];
+        const prevValue = card.progress.episodes_aired[epKey];
         if (watched) {
-            card.progress.episodes_watched[epKey] = new Date().toISOString();
+            card.progress.episodes_aired[epKey] = new Date().toISOString();
+            // D1d: при mark watched очищаем progress_files для этого эпизода
+            if (snap.progress_files) {
+                delete snap.progress_files['show:' + tmdb + ':' + epKey];
+            }
         } else {
-            delete card.progress.episodes_watched[epKey];
+            // unwatched — оставляем aired-маркер null (всё ещё в эпизодах сезона)
+            card.progress.episodes_aired[epKey] = null;
         }
 
         snap.meta.generated_at = new Date().toISOString();
@@ -87,9 +92,9 @@ export default async function (app) {
         } catch (err) {
             // rollback
             if (prevValue !== undefined) {
-                card.progress.episodes_watched[epKey] = prevValue;
+                card.progress.episodes_aired[epKey] = prevValue;
             } else {
-                delete card.progress.episodes_watched[epKey];
+                delete card.progress.episodes_aired[epKey];
             }
             await repo.writeSnapshot(snap);
             return reply.code(500).send({ ok: false, error: String(err.message || err) });

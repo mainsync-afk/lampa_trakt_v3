@@ -25,6 +25,13 @@ export default async function (app) {
                 known: false
             };
         }
+        // D1d: подтянем film progress (для type='movie')
+        let movie_progress = null;
+        if (c.type === 'movie' && snap.progress_files) {
+            const pf = snap.progress_files['movie:' + c.tmdb];
+            if (pf) movie_progress = { time: pf.time, duration: pf.duration, percent: pf.percent };
+        }
+
         return {
             tmdb: c.tmdb,
             type: c.type,
@@ -39,6 +46,7 @@ export default async function (app) {
             trakt_status: c.trakt_status || null,
             show_status: c.show_status || null,
             progress: c.progress || null,
+            movie_progress,
             known: true
         };
     });

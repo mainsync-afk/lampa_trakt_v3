@@ -46,17 +46,22 @@ export default async function (app) {
             }
         }
 
-        // Возвращаем ВСЕ aired эпизоды с watched-флагом (для regenerate всех hashes
-        // в плагине — как watched, так и unwatched).
+        // Возвращаем ВСЕ aired эпизоды с watched-флагом + progress (D1d cross-device).
         const ea = card.progress?.episodes_aired || {};
+        const pf = snap.progress_files || {};
         const episodes = Object.entries(ea).map(([key, watched_at]) => {
             const m = key.match(/^S(\d+)E(\d+)$/);
             if (!m) return null;
+            const season = Number(m[1]);
+            const episode = Number(m[2]);
+            const pfKey = 'show:' + tmdb + ':' + key;
+            const prog = pf[pfKey] || null;
             return {
-                season: Number(m[1]),
-                episode: Number(m[2]),
+                season,
+                episode,
                 watched: watched_at !== null,
-                watched_at: watched_at || null
+                watched_at: watched_at || null,
+                progress: prog ? { time: prog.time, duration: prog.duration, percent: prog.percent } : null
             };
         }).filter(Boolean);
 
