@@ -247,7 +247,11 @@ async function performSync(activities) {
             items_count: Object.keys(cards).length
         },
         cards,
-        lists
+        lists,
+        // v0.4.13: перенос cross-device состояния (D1d), которое НЕ
+        // приходит из Trakt. Без этого re-sync (любой tap, poll, force)
+        // обнуляет прогресс недосмотренных эпизодов/фильмов.
+        progress_files: _state.snapshot?.progress_files || {}
     };
 
     await repo.writeSnapshot(snapshot);
