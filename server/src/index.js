@@ -4,6 +4,7 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import compress from '@fastify/compress';
 import * as syncEngine from './sync/index.js';
+import { writeQueue } from './lib/writeQueue.js';
 import healthRoutes from './routes/health.js';
 import foldersRoutes from './routes/folders.js';
 import cardRoutes from './routes/card.js';
@@ -15,7 +16,7 @@ import movieRoutes from './routes/movie.js';
 import progressRoutes from './routes/progress.js';
 import statesRoutes from './routes/states.js';
 
-const VERSION = '0.4.16';
+const VERSION = '0.5.0';
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || '0.0.0.0';
 
@@ -36,6 +37,14 @@ await app.register(compress, {
 });
 
 await syncEngine.init(app.log);
+
+// writeQueue: на каждый успешный Trakt-write дёргаем background-sync,
+// чтобы snapshot был свежим (classifier пересчитал status, listed_at и т.п.).
+// triggerBackgroundSync coalesces — burst writes → 1 sync.
+writeQueue.init({
+    log: app.log,
+    onSuccess: () => syncEngine.triggerBackgroundSync(200)
+});
 
 await app.register(healthRoutes);
 await app.register(foldersRoutes);

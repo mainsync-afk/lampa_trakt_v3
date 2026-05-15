@@ -1,16 +1,16 @@
-// actions.js — универсальные toggle-функции над snapshot + Trakt.
+// actions.js — универсальные toggle-функции над snapshot + writeQueue.
 // Используется и Lampa-API (routes/tap.js), и в будущем Trakt-compat layer для Showly.
 //
-// Каждая функция:
-//   1. находит/создаёт карточку в snapshot
-//   2. optimistic-мутирует флаг
-//   3. сохраняет snapshot
-//   4. шлёт write на Trakt
-//   5. при ошибке откатывает snapshot и пробрасывает исключение
+// Поведение (с v0.5.0):
+//   1. ensure card + optimistic-мутируем флаг
+//   2. writeSnapshot
+//   3. enqueue в writeQueue (FIFO, pacing 1.5сек, retry 5x backoff)
+//   4. return optimistic-state СРАЗУ (без ожидания Trakt)
+//   5. при permanent fail Trakt'а — rollback через callback writeQueue
 
-import { trakt } from './trakt.js';
+import { writeQueue } from './writeQueue.js';
 import { repo } from './repo.js';
-import { getSnapshot, triggerBackgroundSync } from '../sync/index.js';
+import { getSnapshot } from '../sync/index.js';
 
 function key(type, tmdb) { return type + ':' + tmdb; }
 
@@ -56,7 +56,6 @@ function touchMeta(snap) {
     snap.meta.generated_at = new Date().toISOString();
 }
 
-// Базовый паттерн toggle для boolean-флагов (watchlist/watched/collection).
 function clearProgressForWatched(snap, type, tmdb) {
     if (!snap.progress_files) return;
     if (type === 'movie') {
@@ -69,7 +68,37 @@ function clearProgressForWatched(snap, type, tmdb) {
     }
 }
 
-async function toggleBool(tmdb, type, field, addFn, removeFn) {
+// Откат флага карточки при permanent fail Trakt'а. Делается ассинхронно
+// из writeQueue, поэтому читаем актуальный snapshot заново.
+async function rollbackFieldFlag(type, tmdb, field, prevValue) {
+    const snap = getSnapshot();
+    if (!snap || !snap.cards) return;
+    const k = key(type, tmdb);
+    const card = snap.cards[k];
+    if (!card) return;
+    card[field] = prevValue;
+    touchMeta(snap);
+    await repo.writeSnapshot(snap);
+}
+
+async function rollbackList(type, tmdb, prevInLists) {
+    const snap = getSnapshot();
+    if (!snap || !snap.cards) return;
+    const k = key(type, tmdb);
+    const card = snap.cards[k];
+    if (!card) return;
+    card.in_lists = prevInLists;
+    touchMeta(snap);
+    await repo.writeSnapshot(snap);
+}
+
+const KIND_FOR_FIELD = {
+    in_watchlist:  { add: 'addToWatchlist',  remove: 'removeFromWatchlist'  },
+    in_watched:    { add: 'addToHistory',    remove: 'removeFromHistory'    },
+    in_collection: { add: 'addToCollection', remove: 'removeFromCollection' }
+};
+
+async function toggleBool(tmdb, type, field) {
     const snap = getSnapshot();
     if (!snap) throw new Error('no snapshot yet');
 
@@ -78,47 +107,24 @@ async function toggleBool(tmdb, type, field, addFn, removeFn) {
     const next = !prev;
 
     card[field] = next;
-    // D1d: если только что отметили watched — удаляем progress_files
-    // (карточка считается просмотренной, paused-position больше не нужен).
     if (field === 'in_watched' && next === true) {
         clearProgressForWatched(snap, type, tmdb);
     }
     touchMeta(snap);
     await repo.writeSnapshot(snap);
 
-    try {
-        if (next) {
-            await addFn(payload(type, tmdb));
-        } else {
-            await removeFn(payload(type, tmdb));
-        }
-        // Trakt принял запись → дёргаем full sync в фоне, чтобы snapshot
-        // получил полные данные карточки (title, poster, listed_at, ...) без
-        // ожидания обычного poll-цикла.
-        triggerBackgroundSync(200);
-        return { state: cardState(card), action: next ? 'added' : 'removed' };
-    } catch (err) {
-        // rollback
-        card[field] = prev;
-        touchMeta(snap);
-        await repo.writeSnapshot(snap);
-        throw err;
-    }
+    const kinds = KIND_FOR_FIELD[field];
+    writeQueue.enqueue({
+        kind: next ? kinds.add : kinds.remove,
+        args: { body: payload(type, tmdb) },
+        rollback: async () => rollbackFieldFlag(type, tmdb, field, prev)
+    });
+    return { state: cardState(card), action: next ? 'added' : 'removed' };
 }
 
-export function toggleWatchlist(tmdb, type) {
-    return toggleBool(tmdb, type, 'in_watchlist', trakt.addToWatchlist, trakt.removeFromWatchlist);
-}
-
-export function toggleWatched(tmdb, type) {
-    // Для shows: payload без seasons → Trakt помечает все aired эпизоды как watched_at: now.
-    // При remove → Trakt удаляет все наши watched-записи на этом шоу.
-    return toggleBool(tmdb, type, 'in_watched', trakt.addToHistory, trakt.removeFromHistory);
-}
-
-export function toggleCollection(tmdb, type) {
-    return toggleBool(tmdb, type, 'in_collection', trakt.addToCollection, trakt.removeFromCollection);
-}
+export function toggleWatchlist(tmdb, type)  { return toggleBool(tmdb, type, 'in_watchlist'); }
+export function toggleWatched(tmdb, type)    { return toggleBool(tmdb, type, 'in_watched'); }
+export function toggleCollection(tmdb, type) { return toggleBool(tmdb, type, 'in_collection'); }
 
 export async function toggleListMembership(tmdb, type, listId) {
     const snap = getSnapshot();
@@ -137,18 +143,10 @@ export async function toggleListMembership(tmdb, type, listId) {
     touchMeta(snap);
     await repo.writeSnapshot(snap);
 
-    try {
-        if (wasIn) {
-            await trakt.removeFromList(lid, payload(type, tmdb));
-        } else {
-            await trakt.addToList(lid, payload(type, tmdb));
-        }
-        triggerBackgroundSync(200);
-        return { state: cardState(card), action: wasIn ? 'removed' : 'added' };
-    } catch (err) {
-        card.in_lists = prev;
-        touchMeta(snap);
-        await repo.writeSnapshot(snap);
-        throw err;
-    }
+    writeQueue.enqueue({
+        kind: wasIn ? 'removeFromList' : 'addToList',
+        args: { listId: lid, body: payload(type, tmdb) },
+        rollback: async () => rollbackList(type, tmdb, prev)
+    });
+    return { state: cardState(card), action: wasIn ? 'removed' : 'added' };
 }

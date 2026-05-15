@@ -1,9 +1,11 @@
 // movie.js — set-style mark для фильма (D1c: auto-mark при ≥80% просмотре).
 // POST /api/movie/watch { tmdb, watched: true|false }
+//
+// С v0.5.0: write идёт через writeQueue (FIFO, pacing, retry).
 
-import { trakt } from '../lib/trakt.js';
+import { writeQueue } from '../lib/writeQueue.js';
 import { repo } from '../lib/repo.js';
-import { getSnapshot, triggerBackgroundSync } from '../sync/index.js';
+import { getSnapshot } from '../sync/index.js';
 
 export default async function (app) {
     app.post('/api/movie/watch', async (req, reply) => {
@@ -19,7 +21,6 @@ export default async function (app) {
 
         const k = 'movie:' + tmdb;
         let card = snap.cards?.[k];
-        // Если фильма нет в snapshot — создаём минимальный (новая карточка).
         if (!card) {
             card = {
                 tmdb, type: 'movie', trakt_id: null, imdb_id: null,
@@ -32,33 +33,30 @@ export default async function (app) {
             snap.cards[k] = card;
         }
 
-        // Idempotent: если уже в нужном состоянии — noop
+        // Idempotent: если уже в нужном состоянии — noop, очередь не дёргаем.
         if (!!card.in_watched === watched) {
             return { ok: true, action: 'noop', state: card.in_watched };
         }
 
-        // Optimistic update
         const prev = card.in_watched;
         card.in_watched = watched;
         if (watched) card.last_watched_at = new Date().toISOString();
         snap.meta.generated_at = new Date().toISOString();
         await repo.writeSnapshot(snap);
 
-        // Trakt write
         const body = { movies: [{ ids: { tmdb } }] };
-        try {
-            if (watched) {
-                await trakt.addToHistory(body);
-            } else {
-                await trakt.removeFromHistory(body);
+        writeQueue.enqueue({
+            kind: watched ? 'addToHistory' : 'removeFromHistory',
+            args: { body },
+            rollback: async () => {
+                const s = getSnapshot();
+                if (!s || !s.cards?.[k]) return;
+                s.cards[k].in_watched = prev;
+                s.meta.generated_at = new Date().toISOString();
+                await repo.writeSnapshot(s);
             }
-            triggerBackgroundSync(200);
-            return { ok: true, action: watched ? 'added' : 'removed' };
-        } catch (err) {
-            // rollback
-            card.in_watched = prev;
-            await repo.writeSnapshot(snap);
-            return reply.code(500).send({ ok: false, error: String(err.message || err) });
-        }
+        });
+
+        return { ok: true, action: watched ? 'added' : 'removed' };
     });
 }

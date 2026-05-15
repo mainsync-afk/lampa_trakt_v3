@@ -1,9 +1,12 @@
 // episode.js — write-endpoint для toggle отдельного эпизода (D1b).
 // POST /api/episode/watch { tmdb, season, episode, watched: true|false }
+//
+// С v0.5.0: write идёт в writeQueue (FIFO, pacing, retry). Клиент получает
+// ok сразу, optimistic-обновление snapshot уже произошло.
 
-import { trakt } from '../lib/trakt.js';
+import { writeQueue } from '../lib/writeQueue.js';
 import { repo } from '../lib/repo.js';
-import { getSnapshot, triggerBackgroundSync } from '../sync/index.js';
+import { getSnapshot } from '../sync/index.js';
 import { resolveShowByTmdb, invalidateShowCache } from '../lib/resolve.js';
 
 export default async function (app) {
@@ -29,8 +32,7 @@ export default async function (app) {
         const k = 'show:' + tmdb;
         let card = snap.cards?.[k];
 
-        // Если карточки нет — on-demand: резолвим trakt_id, шлём write напрямую,
-        // НЕ сохраняем в snapshot (через 5 сек background sync подхватит реальное состояние).
+        // Если карточки нет — on-demand resolve trakt_id и сразу enqueue.
         if (!card) {
             try {
                 const resolved = await resolveShowByTmdb(tmdb);
@@ -40,64 +42,58 @@ export default async function (app) {
                         seasons: [{ number: season, episodes: [{ number: episode }] }]
                     }]
                 };
-                if (watched) await trakt.addToHistory(body);
-                else         await trakt.removeFromHistory(body);
+                writeQueue.enqueue({
+                    kind: watched ? 'addToHistory' : 'removeFromHistory',
+                    args: { body }
+                    // rollback не нужен — мы и не писали в snapshot
+                });
                 invalidateShowCache(tmdb);
-                triggerBackgroundSync(200);
                 return { ok: true, action: watched ? 'added' : 'removed', on_demand: true };
             } catch (err) {
                 return reply.code(500).send({ ok: false, error: 'on-demand: ' + String(err.message || err) });
             }
         }
 
-        // Optimistic update episodes_aired (наш текущий ключ — episodes_aired)
+        // Optimistic update episodes_aired
         if (!card.progress) card.progress = {};
         if (!card.progress.episodes_aired) card.progress.episodes_aired = {};
         const epKey = 'S' + String(season).padStart(2, '0') + 'E' + String(episode).padStart(2, '0');
         const prevValue = card.progress.episodes_aired[epKey];
         if (watched) {
             card.progress.episodes_aired[epKey] = new Date().toISOString();
-            // D1d: при mark watched очищаем progress_files для этого эпизода
             if (snap.progress_files) {
                 delete snap.progress_files['show:' + tmdb + ':' + epKey];
             }
         } else {
-            // unwatched — оставляем aired-маркер null (всё ещё в эпизодах сезона)
             card.progress.episodes_aired[epKey] = null;
         }
 
         snap.meta.generated_at = new Date().toISOString();
         await repo.writeSnapshot(snap);
 
-        // Trakt write — через trakt_id шоу + seasons/episodes payload
         const body = {
             shows: [{
                 ids: { tmdb },
-                seasons: [{
-                    number: season,
-                    episodes: [{ number: episode }]
-                }]
+                seasons: [{ number: season, episodes: [{ number: episode }] }]
             }]
         };
 
-        try {
-            if (watched) {
-                await trakt.addToHistory(body);
-            } else {
-                await trakt.removeFromHistory(body);
+        writeQueue.enqueue({
+            kind: watched ? 'addToHistory' : 'removeFromHistory',
+            args: { body },
+            rollback: async () => {
+                const s = getSnapshot();
+                if (!s || !s.cards?.[k]?.progress?.episodes_aired) return;
+                if (prevValue !== undefined) {
+                    s.cards[k].progress.episodes_aired[epKey] = prevValue;
+                } else {
+                    delete s.cards[k].progress.episodes_aired[epKey];
+                }
+                s.meta.generated_at = new Date().toISOString();
+                await repo.writeSnapshot(s);
             }
-            // background re-sync для обновления completed/aired/next_aired_at и точных watched_at
-            triggerBackgroundSync(200);
-            return { ok: true, action: watched ? 'added' : 'removed', episode: epKey };
-        } catch (err) {
-            // rollback
-            if (prevValue !== undefined) {
-                card.progress.episodes_aired[epKey] = prevValue;
-            } else {
-                delete card.progress.episodes_aired[epKey];
-            }
-            await repo.writeSnapshot(snap);
-            return reply.code(500).send({ ok: false, error: String(err.message || err) });
-        }
+        });
+
+        return { ok: true, action: watched ? 'added' : 'removed', episode: epKey };
     });
 }

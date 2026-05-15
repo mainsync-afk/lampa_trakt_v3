@@ -298,12 +298,20 @@ export async function syncOnce(force = false) {
     }
 }
 
-// Запускает асинхронный sync с небольшой задержкой. Используется write-actions
-// после успешного tap'а — сервер обновит snapshot полностью (TMDB enrich,
-// listed_at, etc) пока юзер ещё в sidebar. К моменту следующего захода в
-// Activity юзер увидит правильно обогащённую карточку.
+// Запускает асинхронный sync с небольшой задержкой. Используется ПОСЛЕ
+// успешного Trakt-write (writeQueue.onSuccess) — обновляем snapshot, чтобы
+// classifier/listed_at/last_watched_at были актуальны.
+//
+// Coalesce: если уже запланирован — не планировать повторно. При burst'е
+// 5 successful writes за секунду триггерится 1 sync, а не 5.
+let _bgSyncPlanned = false;
 export function triggerBackgroundSync(delayMs = 200) {
-    setTimeout(() => { syncOnce(true).catch(() => {}); }, delayMs);
+    if (_bgSyncPlanned) return;
+    _bgSyncPlanned = true;
+    setTimeout(() => {
+        _bgSyncPlanned = false;
+        syncOnce(true).catch(() => {});
+    }, delayMs);
 }
 
 export function startPolling() {
