@@ -17,15 +17,19 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.1.20';
+    var VERSION = '0.1.21';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
     // Constants
     // ────────────────────────────────────────────────────────────────────
     var COMPONENT = 'trakt_v3_main';
+    var FOLDER_COMPONENT = 'trakt_v3_folder';
     var SETTINGS_COMPONENT = 'trakt_v3';
     var MENU_DATA_ATTR = 'trakt_v3_menu';
+
+    // Лимит карточек в ряду на главной (не считая папок Сериалы/Фильмы/Все).
+    var ROW_LIMIT = 20;
 
     var DEFAULT_SERVER_URL = 'https://trakt.fastcdn.pics';
     var STORAGE_SERVER_URL = 'trakt_v3_server_url';
@@ -770,7 +774,14 @@
                 // B1.5: progress-bar внизу .card__view
                 + '.trakt-progress{position:absolute;left:0;right:0;bottom:0;height:4px;background:rgba(0,0,0,0.45);z-index:30;pointer-events:none;overflow:hidden;}'
                 + '.trakt-progress__fill{height:100%;background:#1e88e5;transition:width .2s ease;}'
-                + '.trakt-progress--returning .trakt-progress__fill{background:#fb8c00;}';
+                + '.trakt-progress--returning .trakt-progress__fill{background:#fb8c00;}'
+                // Папка-карточка (Сериалы/Фильмы/Все) на главной
+                + '.card.trakt-folder-card .card__view{background:linear-gradient(135deg,#37474f 0%,#263238 100%);display:flex;align-items:center;justify-content:center;}'
+                + '.card.trakt-folder-card .card__view > img,.card.trakt-folder-card .card__icons,.card.trakt-folder-card .card__quality,.card.trakt-folder-card .card__type,.card.trakt-folder-card .card__age{display:none !important;}'
+                + '.card.trakt-folder-card .card__view::before{content:"";display:block;width:46%;height:46%;background:no-repeat center/contain;}'
+                + '.card.trakt-folder-card[data-folder-kind="shows"] .card__view::before{background-image:url("data:image/svg+xml;utf8,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 24 24\' fill=\'%23eceff1\'%3E%3Cpath d=\'M21 3H3a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h7v2H7v2h10v-2h-3v-2h7a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm0 14H3V5h18v12z\'/%3E%3C/svg%3E");}'
+                + '.card.trakt-folder-card[data-folder-kind="movies"] .card__view::before{background-image:url("data:image/svg+xml;utf8,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 24 24\' fill=\'%23eceff1\'%3E%3Cpath d=\'M18 4l2 4h-3l-2-4h-2l2 4h-3l-2-4H8l2 4H7L5 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V4h-4z\'/%3E%3C/svg%3E");}'
+                + '.card.trakt-folder-card[data-folder-kind="all"] .card__view::before{background-image:url("data:image/svg+xml;utf8,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 24 24\' fill=\'%23eceff1\'%3E%3Cpath d=\'M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2z\'/%3E%3C/svg%3E");}';
             var st = document.createElement('style');
             st.id = 'trakt_v3_badges_style';
             st.textContent = css;
@@ -894,8 +905,18 @@
     }
 
     // Обработать одну карточку — найти состояние и нарисовать badges.
+    // Для папок-карточек (Сериалы/Фильмы/Все) проставляем класс/атрибут
+    // (для CSS-визуала) и не рисуем overlay.
     function processCardEl(cardEl) {
         if (!cardEl) return;
+        var d = cardEl.card_data;
+        if (d && d.is_trakt_folder) {
+            try {
+                cardEl.classList.add('trakt-folder-card');
+                cardEl.setAttribute('data-folder-kind', d.trakt_folder_kind || '');
+            } catch (_) {}
+            return; // badges/progress на папках не нужны
+        }
         var st = lookupStateByCardEl(cardEl);
         applyBadgesToCardEl(cardEl, st);
     }
@@ -1066,6 +1087,19 @@
             };
             line.onEnter = function (target, card_data) {
                 if (!card_data) return;
+                if (card_data.is_trakt_folder) {
+                    // 'all' — заглушка, кликом ничего не делаем (см. backlog B-new).
+                    if (card_data.trakt_folder_kind === 'all') return;
+                    Lampa.Activity.push({
+                        url: '',
+                        title: card_data.trakt_folder_source_title + ' — ' + (card_data.trakt_folder_kind === 'shows' ? 'Сериалы' : 'Фильмы'),
+                        component: FOLDER_COMPONENT,
+                        trakt_folder_source: card_data.trakt_folder_source,
+                        trakt_folder_kind: card_data.trakt_folder_kind,
+                        page: 1
+                    });
+                    return;
+                }
                 Lampa.Activity.push({
                     url: '', component: 'full',
                     id: card_data.id, method: card_data.method,
@@ -1105,13 +1139,65 @@
             );
         }
 
+        // Спец-card для папки (Сериалы / Фильмы) или ссылки «Все»:
+        //   trakt_folder_kind: 'shows' | 'movies' | 'all'
+        //   trakt_folder_source: folder.id ('watchlist' / 'returning' / 'completed' / ...)
+        //   trakt_folder_count: число для отображения в подписи
+        //   id-prefix 'trakt_folder_' — distinguish от обычных карточек.
+        function buildFolderCard(sourceId, kind, count, title) {
+            return {
+                id: 'trakt_folder_' + sourceId + '_' + kind,
+                method: kind === 'movies' ? 'movie' : 'tv',
+                card_type: kind === 'movies' ? 'movie' : 'tv',
+                title: title + ' (' + count + ')',
+                original_title: title,
+                poster_path: null,
+                poster: '',
+                img: '',
+                vote_average: 0,
+                is_trakt_folder: true,
+                trakt_folder_kind: kind,
+                trakt_folder_source: sourceId,
+                trakt_folder_source_title: '',
+                trakt_folder_count: count
+            };
+        }
+
+        // Расширяем items секции: prepend папки Сериалы/Фильмы (если есть),
+        // обрезаем top ROW_LIMIT, append «Все» если total > лимита.
+        function expandSectionItems(folder) {
+            var items = folder.items || [];
+            if (folder.id === 'continue_watching') {
+                // Смотрю: без папок и без Все, просто top ROW_LIMIT.
+                return items.slice(0, ROW_LIMIT);
+            }
+            var shows  = items.filter(function (c) { return c.method === 'tv'; });
+            var movies = items.filter(function (c) { return c.method === 'movie'; });
+            var head = [];
+            if (shows.length  > 0) head.push(buildFolderCard(folder.id, 'shows',  shows.length,  'Сериалы'));
+            if (movies.length > 0) head.push(buildFolderCard(folder.id, 'movies', movies.length, 'Фильмы'));
+            var top = items.slice(0, ROW_LIMIT);
+            var tail = [];
+            if (items.length > ROW_LIMIT) {
+                tail.push(buildFolderCard(folder.id, 'all', items.length, 'Все'));
+            }
+            // Стороны: head + top + tail. head/tail привязаны к folder.id для navigation.
+            // Сохраним заголовок секции (для подпапки)
+            head.forEach(function (h) { h.trakt_folder_source_title = folder.title; });
+            tail.forEach(function (h) { h.trakt_folder_source_title = folder.title; });
+            return head.concat(top).concat(tail);
+        }
+
         function buildSections(folders) {
+            // Сохраним полные данные для подпапки (FolderComponent читает их).
+            window.__trakt_v3_last_folders = folders;
             (folders.folders || []).forEach(function (f) {
                 var items = f.items || [];
                 if (items.length === 0) {
                     body.append(buildEmptyLine(f.title));
                 } else {
-                    var line = buildSectionLine(f.title, items);
+                    var extended = expandSectionItems(f);
+                    var line = buildSectionLine(f.title, extended);
                     lines.push(line);
                     body.append(line.render());
                 }
@@ -1216,6 +1302,119 @@
     // ────────────────────────────────────────────────────────────────────
     // DOM-инъекция пункта в левое меню
     // ────────────────────────────────────────────────────────────────────
+    // ────────────────────────────────────────────────────────────────────
+    // FolderComponent — подпапка одной секции с фильтром shows/movies.
+    // Открывается при клике на папка-карточку «Сериалы» / «Фильмы».
+    // Layout: несколько горизонтальных InteractionLine'ов (по PER_ROW штук),
+    // вертикальный scroll между ними. На больших экранах ≈ grid.
+    // ────────────────────────────────────────────────────────────────────
+    function FolderComponent(object) {
+        var self = this;
+        var PER_ROW = 6;
+        var scroll = new Lampa.Scroll({ mask: true, over: true, step: 250 });
+        var html = $('<div class="trakt_v3_folder"></div>');
+        var body = $('<div class="trakt_v3_folder__body"></div>');
+        var lines = [];
+
+        this.activity = null;
+
+        function getItems() {
+            var snap = window.__trakt_v3_last_folders;
+            if (!snap || !Array.isArray(snap.folders)) return null;
+            var src = String(object.trakt_folder_source || '');
+            var kind = String(object.trakt_folder_kind || '');
+            var folder = snap.folders.find(function (f) { return f.id === src; });
+            if (!folder) return null;
+            var items = folder.items || [];
+            if (kind === 'shows')  return items.filter(function (c) { return c.method === 'tv'; });
+            if (kind === 'movies') return items.filter(function (c) { return c.method === 'movie'; });
+            return items;
+        }
+
+        function buildRow(chunk) {
+            var data = { title: '', results: chunk, source: 'tmdb', noimage: true };
+            var params = { object: object, nomore: true };
+            var line = new Lampa.InteractionLine(data, params);
+            line.create();
+            line.onEnter = function (target, card_data) {
+                if (!card_data || card_data.is_trakt_folder) return;
+                Lampa.Activity.push({
+                    url: '', component: 'full',
+                    id: card_data.id, method: card_data.method,
+                    card: card_data, source: 'tmdb'
+                });
+            };
+            line.onUp = function () {
+                var idx = lines.indexOf(line);
+                if (idx > 0) lines[idx - 1].toggle();
+                else Lampa.Controller.toggle('head');
+            };
+            line.onDown = function () {
+                var idx = lines.indexOf(line);
+                if (idx >= 0 && idx < lines.length - 1) lines[idx + 1].toggle();
+            };
+            line.onLeft = function () { Lampa.Controller.toggle('menu'); };
+            line.onBack = self.back;
+            line.onToggle = function () {
+                try { scroll.update($(line.render(true)), true); } catch (_) {}
+            };
+            return line;
+        }
+
+        function render(items) {
+            if (!items || items.length === 0) {
+                body.append('<div class="empty" style="padding:2em;text-align:center;opacity:.6">Пусто</div>');
+            } else {
+                for (var i = 0; i < items.length; i += PER_ROW) {
+                    var chunk = items.slice(i, i + PER_ROW);
+                    var line = buildRow(chunk);
+                    lines.push(line);
+                    body.append(line.render());
+                }
+            }
+            scroll.minus();
+            scroll.append(body);
+            html.append(scroll.render());
+            if (self.activity) self.activity.loader(false);
+            lines.forEach(function (line) {
+                try {
+                    var el = line.render(true);
+                    if (el && typeof el.dispatchEvent === 'function') el.dispatchEvent(new Event('visible'));
+                } catch (_) {}
+            });
+            if (self.activity && typeof self.activity.toggle === 'function') self.activity.toggle();
+        }
+
+        this.create = function () {
+            if (this.activity) this.activity.loader(true);
+            var items = getItems();
+            // Если кеша нет (заход прямой/refresh) — догружаем /api/folders
+            if (items === null) {
+                serverGet('/api/folders').then(function (folders) {
+                    window.__trakt_v3_last_folders = folders;
+                    render(getItems() || []);
+                }).catch(function () { render([]); });
+            } else {
+                render(items);
+            }
+            return this.render();
+        };
+
+        this.render = function () { return html; };
+        this.start = function () {
+            if (lines.length > 0) lines[0].toggle();
+            else Lampa.Controller.toggle('head');
+        };
+        this.pause = function () {};
+        this.stop = function () {};
+        this.back = function () { Lampa.Activity.backward(); };
+        this.destroy = function () {
+            lines.forEach(function (line) { try { line.destroy(); } catch (_) {} });
+            lines = [];
+            html.remove();
+        };
+    }
+
     function ICON() {
         return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="7 13 10 16 17 9"/></svg>';
     }
@@ -1331,6 +1530,7 @@
 
         registerLang();
         Lampa.Component.add(COMPONENT, MainComponent);
+        Lampa.Component.add(FOLDER_COMPONENT, FolderComponent);
         registerCardSidebar();
         registerSettings();
 
