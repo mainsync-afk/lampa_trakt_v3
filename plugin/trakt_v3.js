@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.1.30';
+    var VERSION = '0.1.31';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -1175,7 +1175,9 @@
     // ────────────────────────────────────────────────────────────────────
     function MainComponent(object) {
         var self = this;
-        var scroll = new Lampa.Scroll({ mask: true, over: true, step: 250 });
+        // over: false — отключает over-scroll эффект (он давал «прыжки» при первом фокусе).
+        // mask: true оставляем для cleanup-эффекта по краям.
+        var scroll = new Lampa.Scroll({ mask: true, over: false, step: 250 });
         var html = $('<div class="trakt_v3"></div>');
         var body = $('<div class="trakt_v3__body"></div>');
         var lines = [];
@@ -1199,7 +1201,13 @@
                 source: 'tmdb',
                 noimage: true
             };
-            var params = { object: object, nomore: true };
+            // align_left: true — карточки прижаты к левому краю при scroll'е внутри
+            // ряда (без авто-центрирования по фокусу).
+            var params = {
+                object: object,
+                nomore: true,
+                align: 'left'
+            };
             var line = new Lampa.InteractionLine(data, params);
             line.create();
 
