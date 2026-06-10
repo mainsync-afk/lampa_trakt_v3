@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.1.43';
+    var VERSION = '0.1.44';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -782,6 +782,12 @@
                 + '.card.trakt-folder-card[data-folder-kind="shows"] .card__view::before{background-image:url("data:image/svg+xml;utf8,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 24 24\' fill=\'%23eceff1\'%3E%3Cpath d=\'M21 3H3a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h7v2H7v2h10v-2h-3v-2h7a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm0 14H3V5h18v12z\'/%3E%3C/svg%3E");}'
                 + '.card.trakt-folder-card[data-folder-kind="movies"] .card__view::before{background-image:url("data:image/svg+xml;utf8,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 24 24\' fill=\'%23eceff1\'%3E%3Cpath d=\'M18 4l2 4h-3l-2-4h-2l2 4h-3l-2-4H8l2 4H7L5 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V4h-4z\'/%3E%3C/svg%3E");}'
                 + '.card.trakt-folder-card[data-folder-kind="all"] .card__view::before{background-image:url("data:image/svg+xml;utf8,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 24 24\' fill=\'%23eceff1\'%3E%3Cpath d=\'M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2z\'/%3E%3C/svg%3E");}'
+                // Коллаж 2×2 из top-постеров содержимого папки.
+                + '.trakt-folder-collage{position:absolute;inset:0;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:2px;}'
+                + '.trakt-folder-collage__tile{background-size:cover;background-position:center;background-repeat:no-repeat;background-color:#263238;}'
+                // Если есть коллаж — скрываем SVG-иконку и фоновый градиент.
+                + '.card.trakt-folder-card--has-collage .card__view::before{display:none;}'
+                + '.card.trakt-folder-card--has-collage .card__view{background:#263238;}'
                 // FolderComponent grid: 6 карточек на ряд, растянутые по ширине,
                 // без горизонтального скролла.
                 + '.trakt_v3_folder .items-line__body{display:flex !important;flex-wrap:nowrap;width:100% !important;padding:0 !important;}'
@@ -923,7 +929,8 @@
 
     // Обработать одну карточку — найти состояние и нарисовать badges.
     // Для папок-карточек (Сериалы/Фильмы/Все) проставляем класс/атрибут
-    // (для CSS-визуала) и не рисуем overlay.
+    // (для CSS-визуала), рисуем коллаж из top-постеров содержимого папки
+    // и не рисуем overlay-значки/progress.
     function processCardEl(cardEl) {
         if (!cardEl) return;
         var d = cardEl.card_data;
@@ -931,6 +938,23 @@
             try {
                 cardEl.classList.add('trakt-folder-card');
                 cardEl.setAttribute('data-folder-kind', d.trakt_folder_kind || '');
+                // Коллаж: 4 tile'а grid 2×2 поверх SVG-иконки.
+                var view = cardEl.querySelector('.card__view');
+                if (view && !view.querySelector('.trakt-folder-collage')) {
+                    var posters = Array.isArray(d.trakt_folder_posters) ? d.trakt_folder_posters : [];
+                    if (posters.length > 0) {
+                        var collage = document.createElement('div');
+                        collage.className = 'trakt-folder-collage';
+                        for (var i = 0; i < Math.min(posters.length, 4); i++) {
+                            var tile = document.createElement('div');
+                            tile.className = 'trakt-folder-collage__tile';
+                            tile.style.backgroundImage = 'url("' + posters[i] + '")';
+                            collage.appendChild(tile);
+                        }
+                        cardEl.classList.add('trakt-folder-card--has-collage');
+                        view.appendChild(collage);
+                    }
+                }
             } catch (_) {}
             return; // badges/progress на папках не нужны
         }
@@ -1297,7 +1321,7 @@
         //   trakt_folder_source: folder.id ('watchlist' / 'returning' / 'completed' / ...)
         //   trakt_folder_count: число для отображения в подписи
         //   id-prefix 'trakt_folder_' — distinguish от обычных карточек.
-        function buildFolderCard(sourceId, kind, count, title) {
+        function buildFolderCard(sourceId, kind, count, title, posters) {
             return {
                 id: 'trakt_folder_' + sourceId + '_' + kind,
                 // method='collection' — НЕ открывает 'full' автоматом
@@ -1316,7 +1340,9 @@
                 trakt_folder_kind: kind,
                 trakt_folder_source: sourceId,
                 trakt_folder_source_title: '',
-                trakt_folder_count: count
+                trakt_folder_count: count,
+                // 4 постера для коллажа (top items секции этого kind).
+                trakt_folder_posters: Array.isArray(posters) ? posters.slice(0, 4) : []
             };
         }
 
@@ -1330,9 +1356,13 @@
             }
             var shows  = items.filter(function (c) { return c.method === 'tv'; });
             var movies = items.filter(function (c) { return c.method === 'movie'; });
+            function postersOf(arr) {
+                return arr.slice(0, 4).map(function (c) { return c.poster || c.img || c.poster_path; })
+                    .filter(function (p) { return !!p; });
+            }
             var head = [];
-            if (shows.length  > 0) head.push(buildFolderCard(folder.id, 'shows',  shows.length,  'Сериалы'));
-            if (movies.length > 0) head.push(buildFolderCard(folder.id, 'movies', movies.length, 'Фильмы'));
+            if (shows.length  > 0) head.push(buildFolderCard(folder.id, 'shows',  shows.length,  'Сериалы', postersOf(shows)));
+            if (movies.length > 0) head.push(buildFolderCard(folder.id, 'movies', movies.length, 'Фильмы', postersOf(movies)));
             var top = items.slice(0, ROW_LIMIT);
             var tail = [];
             if (items.length > ROW_LIMIT) {
