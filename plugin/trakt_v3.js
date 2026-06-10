@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.1.47';
+    var VERSION = '0.1.48';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -789,7 +789,7 @@
                 + '.trakt-folder-wrap{width:100%;height:100%;display:flex;flex-direction:column;box-sizing:border-box;}'
                 // Tab: верхняя плашка слева, ~6% высоты, ~38% ширины — стилизована
                 // как «вкладка папки», цвет светлее body для visual contrast.
-                + '.trakt-folder-tab{height:6%;width:38%;background:#2c3033;border-radius:0.4em 0.4em 0 0;}'
+                + '.trakt-folder-tab{height:20%;width:50%;background:#ff0000;border-radius:0.4em 0.4em 0 0;}'
                 // Body: основное тело с коллажем и подписью. Top-left угол НЕ round
                 // (там tab «сидит»), остальные round.
                 + '.trakt-folder-body{flex:1;background:#1D1F20;border-radius:0 0.5em 0.5em 0.5em;padding:0.4em;display:flex;flex-direction:column;box-sizing:border-box;min-height:0;}'
@@ -951,6 +951,7 @@
                 cardEl.classList.add('trakt-folder-card');
                 cardEl.setAttribute('data-folder-kind', d.trakt_folder_kind || '');
                 var view = cardEl.querySelector('.card__view');
+                try { console.log('[trakt_v3][folder-render]', d.trakt_folder_kind, 'view?', !!view, 'wrap-exists?', !!(view && view.querySelector('.trakt-folder-wrap'))); } catch (_) {}
                 if (view && !view.querySelector('.trakt-folder-wrap')) {
                     var posters = Array.isArray(d.trakt_folder_posters) ? d.trakt_folder_posters : [];
                     var nameMap = { shows: 'Сериалы', movies: 'Фильмы', all: 'Все' };
