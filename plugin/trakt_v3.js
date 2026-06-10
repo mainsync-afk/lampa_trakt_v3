@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.1.27';
+    var VERSION = '0.1.28';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -938,6 +938,66 @@
     // MutationObserver-паттерн (как у interface_mod.js): watch новые .card
     // и батчево обрабатываем через rAF. Это надёжно работает на ВСЕХ страницах
     // Lampa, без зависимости от существования 'card' event.
+    // Custom Lampa-source 'trakt_v3' — отдаёт наши items из __trakt_v3_last_folders
+    // в формате, который понимает component='category_full'. url-формат:
+    //   <source>/<kind>   например: 'watchlist/shows', 'completed/movies'
+    // Lampa сама нарисует grid точно так же как для нативного 'favorite'.
+    function registerTraktSource() {
+        if (window.__trakt_v3_source_registered) return;
+        if (!window.Lampa) return;
+        var TraktSource = {
+            list: function (object, success, error) {
+                try {
+                    var snap = window.__trakt_v3_last_folders;
+                    if (!snap || !Array.isArray(snap.folders)) {
+                        // Догружаем если кеша нет.
+                        return serverGet('/api/folders').then(function (folders) {
+                            window.__trakt_v3_last_folders = folders;
+                            TraktSource.list(object, success, error);
+                        }).catch(function () { error && error(); });
+                    }
+                    var url = String(object.url || '');
+                    var parts = url.split('/');
+                    var src = parts.slice(0, -1).join('/') || parts[0];
+                    var kind = parts[parts.length - 1];
+                    var folder = snap.folders.find(function (f) { return f.id === src; });
+                    if (!folder) return success({ results: [], total_pages: 0, page: 1 });
+                    var items = (folder.items || []).slice();
+                    if (kind === 'shows')  items = items.filter(function (c) { return c.method === 'tv'; });
+                    else if (kind === 'movies') items = items.filter(function (c) { return c.method === 'movie'; });
+                    var page = Number(object.page) || 1;
+                    var perPage = 200; // отдаём страницей по 200 — Lampa сама пагинирует
+                    var start = (page - 1) * perPage;
+                    var paged = items.slice(start, start + perPage);
+                    success({
+                        results: paged,
+                        total_pages: Math.max(1, Math.ceil(items.length / perPage)),
+                        page: page,
+                        total_results: items.length
+                    });
+                } catch (err) {
+                    try { console.warn('[trakt_v3] source.list err', err); } catch (_) {}
+                    error && error(err);
+                }
+            },
+            // Опционально: для full-card; в нашем случае не используется.
+            full: function (object, success, error) { success({}); },
+            menuCategory: function () { return []; },
+            menu: function (params, oncomplite) { oncomplite([]); },
+            clear: function () {}
+        };
+        // Lampa старая API: Lampa.Api имеет sources; новая — Lampa.Source.
+        try {
+            if (Lampa.Api && Lampa.Api.sources)   Lampa.Api.sources['trakt_v3']   = TraktSource;
+            if (Lampa.Source && Lampa.Source.add) Lampa.Source.add('trakt_v3',     TraktSource);
+            else if (Lampa.Source)                Lampa.Source['trakt_v3']        = TraktSource;
+            window.__trakt_v3_source_registered = true;
+            try { console.log('[trakt_v3] custom source registered'); } catch (_) {}
+        } catch (err) {
+            try { console.warn('[trakt_v3] source register err', err); } catch (_) {}
+        }
+    }
+
     // Перехватываем hover:enter на папка-карточках ДО внутренних Lampa-handler'ов.
     // Capture-phase + stopImmediatePropagation глушит default-открытие 'full'.
     // Сами открываем нужный FolderComponent или ничего (для 'all' заглушки).
@@ -962,12 +1022,14 @@
             var kind   = lastUnderscore > 0 ? rest.slice(lastUnderscore + 1) : '';
             if (kind === 'all') return;  // заглушка
             try {
+                // Открываем нативный Lampa category_full с нашим источником —
+                // Lampa сама нарисует grid одинаковыми карточками 6 в ряд,
+                // pagination и т.п. Url-шаблон 'source/kind' читает TraktSource.
                 Lampa.Activity.push({
-                    url: '',
+                    url: source + '/' + kind,
                     title: data.original_title || data.title || (kind === 'shows' ? 'Сериалы' : 'Фильмы'),
-                    component: FOLDER_COMPONENT,
-                    trakt_folder_source: source,
-                    trakt_folder_kind: kind,
+                    component: 'category_full',
+                    source: 'trakt_v3',
                     page: 1
                 });
             } catch (err) {
@@ -1618,6 +1680,7 @@
         Lampa.Component.add(COMPONENT, MainComponent);
         Lampa.Component.add(FOLDER_COMPONENT, FolderComponent);
         registerCardSidebar();
+        registerTraktSource();
         registerSettings();
 
         installHoverLongHook();
