@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.1.28';
+    var VERSION = '0.1.29';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -947,38 +947,42 @@
         if (!window.Lampa) return;
         var TraktSource = {
             list: function (object, success, error) {
-                try {
-                    var snap = window.__trakt_v3_last_folders;
-                    if (!snap || !Array.isArray(snap.folders)) {
-                        // Догружаем если кеша нет.
-                        return serverGet('/api/folders').then(function (folders) {
-                            window.__trakt_v3_last_folders = folders;
-                            TraktSource.list(object, success, error);
-                        }).catch(function () { error && error(); });
+                // ВАЖНО: возвращаем результат АСИНХРОННО (через setTimeout 0).
+                // Иначе Lampa.Activity не успевает запустить transition-анимацию
+                // и контент появляется резко без плавного выезда.
+                setTimeout(function () {
+                    try {
+                        var snap = window.__trakt_v3_last_folders;
+                        if (!snap || !Array.isArray(snap.folders)) {
+                            return serverGet('/api/folders').then(function (folders) {
+                                window.__trakt_v3_last_folders = folders;
+                                TraktSource.list(object, success, error);
+                            }).catch(function () { error && error(); });
+                        }
+                        var url = String(object.url || '');
+                        var parts = url.split('/');
+                        var src = parts.slice(0, -1).join('/') || parts[0];
+                        var kind = parts[parts.length - 1];
+                        var folder = snap.folders.find(function (f) { return f.id === src; });
+                        if (!folder) return success({ results: [], total_pages: 0, page: 1 });
+                        var items = (folder.items || []).slice();
+                        if (kind === 'shows')  items = items.filter(function (c) { return c.method === 'tv'; });
+                        else if (kind === 'movies') items = items.filter(function (c) { return c.method === 'movie'; });
+                        var page = Number(object.page) || 1;
+                        var perPage = 200;
+                        var start = (page - 1) * perPage;
+                        var paged = items.slice(start, start + perPage);
+                        success({
+                            results: paged,
+                            total_pages: Math.max(1, Math.ceil(items.length / perPage)),
+                            page: page,
+                            total_results: items.length
+                        });
+                    } catch (err) {
+                        try { console.warn('[trakt_v3] source.list err', err); } catch (_) {}
+                        error && error(err);
                     }
-                    var url = String(object.url || '');
-                    var parts = url.split('/');
-                    var src = parts.slice(0, -1).join('/') || parts[0];
-                    var kind = parts[parts.length - 1];
-                    var folder = snap.folders.find(function (f) { return f.id === src; });
-                    if (!folder) return success({ results: [], total_pages: 0, page: 1 });
-                    var items = (folder.items || []).slice();
-                    if (kind === 'shows')  items = items.filter(function (c) { return c.method === 'tv'; });
-                    else if (kind === 'movies') items = items.filter(function (c) { return c.method === 'movie'; });
-                    var page = Number(object.page) || 1;
-                    var perPage = 200; // отдаём страницей по 200 — Lampa сама пагинирует
-                    var start = (page - 1) * perPage;
-                    var paged = items.slice(start, start + perPage);
-                    success({
-                        results: paged,
-                        total_pages: Math.max(1, Math.ceil(items.length / perPage)),
-                        page: page,
-                        total_results: items.length
-                    });
-                } catch (err) {
-                    try { console.warn('[trakt_v3] source.list err', err); } catch (_) {}
-                    error && error(err);
-                }
+                }, 0);
             },
             // Опционально: для full-card; в нашем случае не используется.
             full: function (object, success, error) { success({}); },
