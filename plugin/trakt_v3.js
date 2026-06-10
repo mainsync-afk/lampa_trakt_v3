@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.1.49';
+    var VERSION = '0.1.50';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -775,15 +775,19 @@
                 + '.trakt-progress{position:absolute;left:0;right:0;bottom:0;height:4px;background:rgba(0,0,0,0.45);z-index:30;pointer-events:none;overflow:hidden;}'
                 + '.trakt-progress__fill{height:100%;background:#1e88e5;transition:width .2s ease;}'
                 + '.trakt-progress--returning .trakt-progress__fill{background:#fb8c00;}'
-                // Папка-карточка: весь визуал ВНУТРИ нативной .card__view.
-                // Wrap позиционируется ABSOLUTE поверх Lampa-native nested (img, icons и т.д.),
-                // т.к. их display:none не всегда побеждает Lampa CSS.
-                + '.card.trakt-folder-card .card__view{position:relative;background:transparent !important;padding:0 !important;overflow:hidden;}'
-                + '.card.trakt-folder-card .card__view > *{visibility:hidden;}'
-                + '.card.trakt-folder-card .card__view > .trakt-folder-wrap{visibility:visible;}'
+                // Папка-карточка: визуал ВНУТРИ нативной .card__view.
+                // Фиксируем aspect-ratio чтобы card__view имела высоту независимо от
+                // содержимого (Lampa-native img.card_broken не даёт ей высоты).
+                + '.card.trakt-folder-card .card__view{position:relative;background:transparent !important;padding:0 !important;overflow:hidden;aspect-ratio:2/3;}'
+                + '.card.trakt-folder-card .card__view > img,'
+                + '.card.trakt-folder-card .card__view > .card__icons,'
+                + '.card.trakt-folder-card .card__view > .card__quality,'
+                + '.card.trakt-folder-card .card__view > .card__type,'
+                + '.card.trakt-folder-card .card__view > .card__age,'
+                + '.card.trakt-folder-card .card__view > .card-watched{display:none !important;}'
                 + '.card.trakt-folder-card .card__title{display:none !important;}'
-                // Wrap занимает всю card__view через absolute (height теперь не зависит от content).
-                + '.trakt-folder-wrap{position:absolute;inset:0;display:flex;flex-direction:column;box-sizing:border-box;}'
+                // Wrap в обычном flow (НЕ absolute) — занимает всю card__view.
+                + '.trakt-folder-wrap{width:100%;height:100%;display:flex;flex-direction:column;box-sizing:border-box;}'
                 // Tab: верхняя плашка слева, ~6% высоты, ~38% ширины — «вкладка папки».
                 + '.trakt-folder-tab{height:6%;width:38%;background:#2c3033;border-radius:0.4em 0.4em 0 0;}'
                 // Body: основное тело с коллажем и подписью. Top-left угол НЕ round
