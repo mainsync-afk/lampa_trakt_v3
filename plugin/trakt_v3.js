@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.1.40';
+    var VERSION = '0.1.41';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -795,8 +795,10 @@
                 // Шапка Lampa поверх нашей главной — добавляем background чтобы карточки не просвечивали.
                 // Шапка: непрозрачный фон в тон Activity (как внутри папок).
                 + 'body.trakt_v3_active .head{background:#1D1F20;}'
-                // Размеры пока не фиксируем — подберём по замерам.
-                ;
+                // Натуральная высота ряда ≈ 32em, прыжок при lazy-load даёт +1-2em.
+                // Ставим min-height 33em — ряд не сожмётся и не вырастет, нижние секции
+                // не сдвинутся. Карточки и card__view — без изменений (Lampa default).
+                + '.trakt_v3 .items-line{min-height:33em;}';
             var st = document.createElement('style');
             st.id = 'trakt_v3_badges_style';
             st.textContent = css;
