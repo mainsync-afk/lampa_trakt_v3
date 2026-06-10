@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.1.21';
+    var VERSION = '0.1.22';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -1310,11 +1310,14 @@
     // ────────────────────────────────────────────────────────────────────
     function FolderComponent(object) {
         var self = this;
-        var PER_ROW = 6;
+        // 7 cards на ряд — на большинстве TV/PWA даёт почти-grid без огромных пустот.
+        // Если Eugene увидит, что 6 лучше — поменяем.
+        var PER_ROW = 7;
         var scroll = new Lampa.Scroll({ mask: true, over: true, step: 250 });
         var html = $('<div class="trakt_v3_folder"></div>');
         var body = $('<div class="trakt_v3_folder__body"></div>');
         var lines = [];
+        var lastFocused = null;
 
         this.activity = null;
 
@@ -1336,6 +1339,9 @@
             var params = { object: object, nomore: true };
             var line = new Lampa.InteractionLine(data, params);
             line.create();
+            line.onFocus = function (card_data) {
+                lastFocused = line;
+            };
             line.onEnter = function (target, card_data) {
                 if (!card_data || card_data.is_trakt_folder) return;
                 Lampa.Activity.push({
@@ -1356,12 +1362,13 @@
             line.onLeft = function () { Lampa.Controller.toggle('menu'); };
             line.onBack = self.back;
             line.onToggle = function () {
+                lastFocused = line;
                 try { scroll.update($(line.render(true)), true); } catch (_) {}
             };
             return line;
         }
 
-        function render(items) {
+        function renderItems(items) {
             if (!items || items.length === 0) {
                 body.append('<div class="empty" style="padding:2em;text-align:center;opacity:.6">Пусто</div>');
             } else {
@@ -1388,30 +1395,44 @@
         this.create = function () {
             if (this.activity) this.activity.loader(true);
             var items = getItems();
-            // Если кеша нет (заход прямой/refresh) — догружаем /api/folders
             if (items === null) {
                 serverGet('/api/folders').then(function (folders) {
                     window.__trakt_v3_last_folders = folders;
-                    render(getItems() || []);
-                }).catch(function () { render([]); });
+                    renderItems(getItems() || []);
+                }).catch(function () { renderItems([]); });
             } else {
-                render(items);
+                renderItems(items);
             }
             return this.render();
         };
 
-        this.render = function () { return html; };
         this.start = function () {
-            if (lines.length > 0) lines[0].toggle();
-            else Lampa.Controller.toggle('head');
+            if (this.activity) this.activity.loader(false);
+            Lampa.Controller.add('content', {
+                link: self,
+                toggle: function () {
+                    var target = lastFocused || lines[0] || null;
+                    if (target) target.toggle();
+                    else Lampa.Controller.toggle('head');
+                },
+                left:  function () { if (Navigator.canmove('left'))  Navigator.move('left');  else Lampa.Controller.toggle('menu'); },
+                right: function () { if (Navigator.canmove('right')) Navigator.move('right'); },
+                up:    function () { if (Navigator.canmove('up'))    Navigator.move('up');    else Lampa.Controller.toggle('head'); },
+                down:  function () { if (Navigator.canmove('down'))  Navigator.move('down'); },
+                back:  this.back
+            });
+            Lampa.Controller.toggle('content');
         };
-        this.pause = function () {};
-        this.stop = function () {};
+
         this.back = function () { Lampa.Activity.backward(); };
+        this.pause = function () {};
+        this.stop  = function () {};
+        this.render = function () { return html; };
         this.destroy = function () {
-            lines.forEach(function (line) { try { line.destroy(); } catch (_) {} });
-            lines = [];
+            try { lines.forEach(function (l) { try { l.destroy(); } catch (_) {} }); } catch (_) {}
+            try { scroll.destroy(); } catch (_) {}
             html.remove();
+            lines = [];
         };
     }
 
