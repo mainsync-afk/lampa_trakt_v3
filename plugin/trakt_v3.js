@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.1.23';
+    var VERSION = '0.1.24';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -1147,8 +1147,12 @@
         function buildFolderCard(sourceId, kind, count, title) {
             return {
                 id: 'trakt_folder_' + sourceId + '_' + kind,
-                method: kind === 'movies' ? 'movie' : 'tv',
-                card_type: kind === 'movies' ? 'movie' : 'tv',
+                // method='collection' — НЕ открывает 'full' автоматом
+                // (если поставить 'tv'/'movie' — Lampa.Card push'ит full
+                // поверх нашего FolderComponent → пустой чёрный экран).
+                method: 'collection',
+                card_type: 'collection',
+                source: 'tmdb',
                 title: title + ' (' + count + ')',
                 original_title: title,
                 poster_path: null,
@@ -1393,20 +1397,13 @@
         }
 
         this.create = function () {
-            try { console.log('[trakt_v3][folder] create() src=', object.trakt_folder_source, 'kind=', object.trakt_folder_kind, 'hasActivity=', !!this.activity); } catch (_) {}
             if (this.activity) this.activity.loader(true);
             var items = getItems();
-            try { console.log('[trakt_v3][folder] items resolved synchronously:', items ? items.length : 'null'); } catch (_) {}
             if (items === null) {
                 serverGet('/api/folders').then(function (folders) {
                     window.__trakt_v3_last_folders = folders;
-                    var it = getItems() || [];
-                    try { console.log('[trakt_v3][folder] async items:', it.length); } catch (_) {}
-                    renderItems(it);
-                }).catch(function (err) {
-                    try { console.warn('[trakt_v3][folder] fetch err', err); } catch (_) {}
-                    renderItems([]);
-                });
+                    renderItems(getItems() || []);
+                }).catch(function () { renderItems([]); });
             } else {
                 renderItems(items);
             }
@@ -1414,35 +1411,28 @@
         };
 
         this.start = function () {
-            try { console.log('[trakt_v3][folder] start() lines=', lines.length, 'NavigatorGlobal=', typeof Navigator); } catch (_) {}
             if (this.activity) this.activity.loader(false);
-            var NavRef = (typeof Navigator !== 'undefined') ? Navigator : (Lampa && Lampa.Navigator);
             Lampa.Controller.add('content', {
                 link: self,
                 toggle: function () {
                     var target = lastFocused || lines[0] || null;
-                    try { console.log('[trakt_v3][folder] ctrl.toggle target?', !!target); } catch (_) {}
                     if (target) target.toggle();
                     else Lampa.Controller.toggle('head');
                 },
-                left:  function () { if (NavRef && NavRef.canmove('left'))  NavRef.move('left');  else Lampa.Controller.toggle('menu'); },
-                right: function () { if (NavRef && NavRef.canmove('right')) NavRef.move('right'); },
-                up:    function () { if (NavRef && NavRef.canmove('up'))    NavRef.move('up');    else Lampa.Controller.toggle('head'); },
-                down:  function () { if (NavRef && NavRef.canmove('down'))  NavRef.move('down'); },
+                left:  function () { if (Navigator.canmove('left'))  Navigator.move('left');  else Lampa.Controller.toggle('menu'); },
+                right: function () { if (Navigator.canmove('right')) Navigator.move('right'); },
+                up:    function () { if (Navigator.canmove('up'))    Navigator.move('up');    else Lampa.Controller.toggle('head'); },
+                down:  function () { if (Navigator.canmove('down'))  Navigator.move('down'); },
                 back:  this.back
             });
             Lampa.Controller.toggle('content');
         };
 
-        this.back = function () {
-            try { console.log('[trakt_v3][folder] back()'); } catch (_) {}
-            Lampa.Activity.backward();
-        };
-        this.pause = function () { try { console.log('[trakt_v3][folder] pause()'); } catch (_) {} };
-        this.stop  = function () { try { console.log('[trakt_v3][folder] stop()'); } catch (_) {} };
+        this.back = function () { Lampa.Activity.backward(); };
+        this.pause = function () {};
+        this.stop  = function () {};
         this.render = function () { return html; };
         this.destroy = function () {
-            try { console.log('[trakt_v3][folder] destroy()'); } catch (_) {}
             try { lines.forEach(function (l) { try { l.destroy(); } catch (_) {} }); } catch (_) {}
             try { scroll.destroy(); } catch (_) {}
             html.remove();
