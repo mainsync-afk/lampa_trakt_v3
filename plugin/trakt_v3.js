@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.1.34';
+    var VERSION = '0.1.35';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -793,7 +793,11 @@
                 + '.card.trakt-folder-card{transform-origin:center;}'
                 + '.card.trakt-folder-card.focus,.card.trakt-folder-card.selector.focused,.card.trakt-folder-card.hover{transform:scale(1.04);}'
                 // Шапка Lampa поверх нашей главной — добавляем background чтобы карточки не просвечивали.
-                + 'body.trakt_v3_active .head{background:linear-gradient(180deg,rgba(0,0,0,0.85) 0%,rgba(0,0,0,0.55) 70%,transparent 100%);}';
+                // Шапка: непрозрачный фон в тон Activity (как внутри папок).
+                + 'body.trakt_v3_active .head{background:#1c1c1c;}'
+                // Фикс прыжка: до загрузки постера фиксируем aspect-ratio cards,
+                // чтобы высота ряда не менялась после lazy-load изображений.
+                + '.trakt_v3 .card .card__view{aspect-ratio:2/3;}';
             var st = document.createElement('style');
             st.id = 'trakt_v3_badges_style';
             st.textContent = css;
