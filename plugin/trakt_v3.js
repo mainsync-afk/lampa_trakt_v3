@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.1.46';
+    var VERSION = '0.1.47';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -775,11 +775,8 @@
                 + '.trakt-progress{position:absolute;left:0;right:0;bottom:0;height:4px;background:rgba(0,0,0,0.45);z-index:30;pointer-events:none;overflow:hidden;}'
                 + '.trakt-progress__fill{height:100%;background:#1e88e5;transition:width .2s ease;}'
                 + '.trakt-progress--returning .trakt-progress__fill{background:#fb8c00;}'
-                // Папка-карточка с вкладкой и коллажем 3×2.
-                // Tab — через ::before на самой .card, торчит ВЫШЕ card__view.
-                + '.card.trakt-folder-card{position:relative;overflow:visible;}'
-                + '.card.trakt-folder-card::before{content:"";position:absolute;top:-0.7em;left:0;width:38%;height:0.8em;background:#1D1F20;border-radius:0.4em 0.4em 0 0;z-index:1;}'
-                // Прячем все стандартные дочерние элементы card__view и Lampa-native title.
+                // Папка-карточка: весь визуал ВНУТРИ нативной .card__view.
+                // Не трогаем размер .card и Lampa focus-outline.
                 + '.card.trakt-folder-card .card__view{background:transparent !important;padding:0 !important;display:block;overflow:hidden;}'
                 + '.card.trakt-folder-card .card__view > img,'
                 + '.card.trakt-folder-card .card__icons,'
@@ -788,14 +785,19 @@
                 + '.card.trakt-folder-card .card__age,'
                 + '.card.trakt-folder-card .card-watched{display:none !important;}'
                 + '.card.trakt-folder-card .card__title{display:none !important;}'
-                // Wrap занимает всё card__view без перерастяжки.
-                + '.trakt-folder-wrap{width:100%;height:100%;display:flex;}'
-                + '.trakt-folder-body{flex:1;background:#1D1F20;border-radius:0 0.6em 0.6em 0.6em;padding:0.4em;display:flex;flex-direction:column;box-sizing:border-box;}'
+                // Wrap занимает всё card__view, в вертикальной стопке tab + body.
+                + '.trakt-folder-wrap{width:100%;height:100%;display:flex;flex-direction:column;box-sizing:border-box;}'
+                // Tab: верхняя плашка слева, ~6% высоты, ~38% ширины — стилизована
+                // как «вкладка папки», цвет светлее body для visual contrast.
+                + '.trakt-folder-tab{height:6%;width:38%;background:#2c3033;border-radius:0.4em 0.4em 0 0;}'
+                // Body: основное тело с коллажем и подписью. Top-left угол НЕ round
+                // (там tab «сидит»), остальные round.
+                + '.trakt-folder-body{flex:1;background:#1D1F20;border-radius:0 0.5em 0.5em 0.5em;padding:0.4em;display:flex;flex-direction:column;box-sizing:border-box;min-height:0;}'
                 // Collage: 3 столбца, постеры 2/3.
                 + '.trakt-folder-collage{display:grid;grid-template-columns:repeat(3,1fr);gap:0.2em;}'
                 + '.trakt-folder-tile{aspect-ratio:2/3;background-size:cover;background-position:center;background-repeat:no-repeat;background-color:#263238;border-radius:0.15em;}'
                 // Label под коллажем — увеличенный шрифт.
-                + '.trakt-folder-label{flex:1;padding:0.55em 0.4em 0.3em;display:flex;flex-direction:column;justify-content:center;}'
+                + '.trakt-folder-label{flex:1;padding:0.5em 0.4em 0.2em;display:flex;flex-direction:column;justify-content:center;min-height:0;}'
                 + '.trakt-folder-label__title{color:#eceff1;font-size:1.2em;font-weight:500;line-height:1.15;}'
                 + '.trakt-folder-label__count{color:#90a4ae;font-size:0.85em;margin-top:0.2em;}'
                 // FolderComponent grid: 6 карточек на ряд, растянутые по ширине,
@@ -961,6 +963,7 @@
                     var wrap = document.createElement('div');
                     wrap.className = 'trakt-folder-wrap';
                     wrap.innerHTML =
+                        '<div class="trakt-folder-tab"></div>' +
                         '<div class="trakt-folder-body">' +
                             '<div class="trakt-folder-collage">' + tilesHtml + '</div>' +
                             '<div class="trakt-folder-label">' +
