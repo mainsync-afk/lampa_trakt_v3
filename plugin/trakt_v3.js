@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.1.25';
+    var VERSION = '0.1.26';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -932,6 +932,53 @@
     // MutationObserver-паттерн (как у interface_mod.js): watch новые .card
     // и батчево обрабатываем через rAF. Это надёжно работает на ВСЕХ страницах
     // Lampa, без зависимости от существования 'card' event.
+    // Перехватываем hover:enter на папка-карточках ДО внутренних Lampa-handler'ов.
+    // Capture-phase + stopImmediatePropagation глушит default-открытие 'full'.
+    // Сами открываем нужный FolderComponent или ничего (для 'all' заглушки).
+    function installFolderEnterHook() {
+        if (window.__trakt_v3_folder_enter_installed) return;
+        window.__trakt_v3_folder_enter_installed = true;
+        function handler(e) {
+            var t = e.target;
+            if (!t || !t.closest) return;
+            var card = t.closest('.card');
+            if (!card) return;
+            var data = card.card_data;
+            if (!data) return;
+            var idStr = String(data.id || '');
+            if (idStr.indexOf('trakt_folder_') !== 0) return;
+            // Это наша папка — глушим default и обрабатываем сами.
+            try { e.stopImmediatePropagation(); } catch (_) {}
+            try { e.preventDefault && e.preventDefault(); } catch (_) {}
+            var rest = idStr.slice('trakt_folder_'.length);
+            var lastUnderscore = rest.lastIndexOf('_');
+            var source = lastUnderscore > 0 ? rest.slice(0, lastUnderscore) : rest;
+            var kind   = lastUnderscore > 0 ? rest.slice(lastUnderscore + 1) : '';
+            if (kind === 'all') return;  // заглушка
+            try {
+                Lampa.Activity.push({
+                    url: '',
+                    title: data.original_title || data.title || (kind === 'shows' ? 'Сериалы' : 'Фильмы'),
+                    component: FOLDER_COMPONENT,
+                    trakt_folder_source: source,
+                    trakt_folder_kind: kind,
+                    page: 1
+                });
+            } catch (err) {
+                try { console.warn('[trakt_v3] folder enter push err', err); } catch (_) {}
+            }
+        }
+        try {
+            // Подписываемся на document в capture-фазе.
+            document.addEventListener('hover:enter', handler, true);
+            // На всякий случай — также 'click' (на ПК клик может идти отдельно).
+            document.addEventListener('click', handler, true);
+            try { console.log('[trakt_v3] folder-enter capture-hook installed'); } catch (_) {}
+        } catch (err) {
+            try { console.warn('[trakt_v3] folder-enter hook err', err); } catch (_) {}
+        }
+    }
+
     function installCardBuildHook() {
         if (window.__trakt_v3_card_hook_installed) return;
         window.__trakt_v3_card_hook_installed = true;
@@ -1571,6 +1618,7 @@
         installFullCardHook();
         installTimelineUpdateHook();
         installCardBuildHook();
+        installFolderEnterHook();
         // Загружаем легковесную карту состояний для overlay-значков B1.
         fetchCardStates();
 
