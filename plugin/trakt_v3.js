@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.1.32';
+    var VERSION = '0.1.33';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -1026,12 +1026,15 @@
             var kind   = lastUnderscore > 0 ? rest.slice(lastUnderscore + 1) : '';
             if (kind === 'all') return;  // заглушка
             try {
-                // Открываем нативный Lampa category_full с нашим источником —
-                // Lampa сама нарисует grid одинаковыми карточками 6 в ряд,
-                // pagination и т.п. Url-шаблон 'source/kind' читает TraktSource.
+                // Breadcrumbs в заголовке: "Trakt - <Закладки> - <Сериалы>".
+                var snap = window.__trakt_v3_last_folders;
+                var section = snap && Array.isArray(snap.folders) ? snap.folders.find(function(f){return f.id===source;}) : null;
+                var sectionTitle = section ? section.title : source;
+                var kindTitle = kind === 'shows' ? 'Сериалы' : 'Фильмы';
+                var breadcrumbs = 'Trakt — ' + sectionTitle + ' — ' + kindTitle;
                 Lampa.Activity.push({
                     url: source + '/' + kind,
-                    title: data.original_title || data.title || (kind === 'shows' ? 'Сериалы' : 'Фильмы'),
+                    title: breadcrumbs,
                     component: 'category_full',
                     source: 'trakt_v3',
                     page: 1
@@ -1363,7 +1366,8 @@
 
             if (isOffline) showOfflineBanner();
 
-            scroll.minus();
+            // Передаём в scroll высоту шапки Lampa — content не уходит под header.
+            try { scroll.minus($('.head')); } catch (_) { scroll.minus(); }
             scroll.append(body);
             html.append(scroll.render());
 
@@ -1523,7 +1527,8 @@
                     body.append(line.render());
                 }
             }
-            scroll.minus();
+            // Передаём в scroll высоту шапки Lampa — content не уходит под header.
+            try { scroll.minus($('.head')); } catch (_) { scroll.minus(); }
             scroll.append(body);
             html.append(scroll.render());
             if (self.activity) self.activity.loader(false);
