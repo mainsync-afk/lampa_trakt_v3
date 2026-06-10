@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.1.33';
+    var VERSION = '0.1.34';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -787,7 +787,13 @@
                 + '.trakt_v3_folder .items-line__body{display:flex !important;flex-wrap:nowrap;width:100% !important;padding:0 !important;}'
                 + '.trakt_v3_folder .items-line .card{width:calc((100% - 6 * 1em) / 6) !important;margin:0 0.5em !important;flex:0 0 auto;}'
                 + '.trakt_v3_folder .items-line__head{padding-left:0.5em;}'
-                + '.trakt_v3_folder .items-line{padding:0 0.5em;margin-bottom:1em;}';
+                + '.trakt_v3_folder .items-line{padding:0 0.5em;margin-bottom:1em;}'
+                // Папкам — фиксированный размер при focus: scale-only, не layout-shift.
+                // Иначе при переходе фокуса между Сериалы/Фильмы ряд прыгает.
+                + '.card.trakt-folder-card{transform-origin:center;}'
+                + '.card.trakt-folder-card.focus,.card.trakt-folder-card.selector.focused,.card.trakt-folder-card.hover{transform:scale(1.04);}'
+                // Шапка Lampa поверх нашей главной — добавляем background чтобы карточки не просвечивали.
+                + 'body.trakt_v3_active .head{background:linear-gradient(180deg,rgba(0,0,0,0.85) 0%,rgba(0,0,0,0.55) 70%,transparent 100%);}';
             var st = document.createElement('style');
             st.id = 'trakt_v3_badges_style';
             st.textContent = css;
@@ -1418,6 +1424,7 @@
 
         this.start = function () {
             if (this.activity) this.activity.loader(false);
+            try { document.body.classList.add('trakt_v3_active'); } catch (_) {}
             Lampa.Controller.add('content', {
                 link: self,
                 toggle: function () {
@@ -1435,8 +1442,8 @@
         };
 
         this.back = function () { Lampa.Activity.backward(); };
-        this.pause = function () {};
-        this.stop  = function () {};
+        this.pause = function () { try { document.body.classList.remove('trakt_v3_active'); } catch (_) {} };
+        this.stop  = function () { try { document.body.classList.remove('trakt_v3_active'); } catch (_) {} };
         this.render = function () { return html; };
         this.destroy = function () {
             try { lines.forEach(function (l) { try { l.destroy(); } catch (_) {} }); } catch (_) {}
@@ -1557,6 +1564,7 @@
 
         this.start = function () {
             if (this.activity) this.activity.loader(false);
+            try { document.body.classList.add('trakt_v3_active'); } catch (_) {}
             Lampa.Controller.add('content', {
                 link: self,
                 toggle: function () {
@@ -1574,8 +1582,8 @@
         };
 
         this.back = function () { Lampa.Activity.backward(); };
-        this.pause = function () {};
-        this.stop  = function () {};
+        this.pause = function () { try { document.body.classList.remove('trakt_v3_active'); } catch (_) {} };
+        this.stop  = function () { try { document.body.classList.remove('trakt_v3_active'); } catch (_) {} };
         this.render = function () { return html; };
         this.destroy = function () {
             try { lines.forEach(function (l) { try { l.destroy(); } catch (_) {} }); } catch (_) {}
