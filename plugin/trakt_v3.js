@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.1.29';
+    var VERSION = '0.1.30';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -1189,9 +1189,12 @@
                 .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
         }
 
-        function buildSectionLine(title, items) {
+        function buildSectionLine(title, items, totalCount) {
+            // totalCount — реальное число карточек в секции (без папок и «Все»).
+            // Если не передано — fallback на items.length.
+            var shown = (typeof totalCount === 'number') ? totalCount : items.length;
             var data = {
-                title: title + ' (' + items.length + ')',
+                title: title + ' (' + shown + ')',
                 results: items,
                 source: 'tmdb',
                 noimage: true
@@ -1328,7 +1331,7 @@
                     body.append(buildEmptyLine(f.title));
                 } else {
                     var extended = expandSectionItems(f);
-                    var line = buildSectionLine(f.title, extended);
+                    var line = buildSectionLine(f.title, extended, items.length);
                     lines.push(line);
                     body.append(line.render());
                 }
