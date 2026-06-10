@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.1.24';
+    var VERSION = '0.1.25';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -1087,15 +1087,23 @@
             };
             line.onEnter = function (target, card_data) {
                 if (!card_data) return;
-                if (card_data.is_trakt_folder) {
-                    // 'all' — заглушка, кликом ничего не делаем (см. backlog B-new).
-                    if (card_data.trakt_folder_kind === 'all') return;
+                // Папки определяем по id-префиксу — custom-поле is_trakt_folder
+                // не доезжает через Lampa.InteractionLine.onEnter.
+                var idStr = String(card_data.id || '');
+                if (idStr.indexOf('trakt_folder_') === 0) {
+                    // 'trakt_folder_<source>_<kind>' — source может содержать ':' (list:42)
+                    // Используем последний сегмент как kind, остальное как source.
+                    var rest = idStr.slice('trakt_folder_'.length);
+                    var lastUnderscore = rest.lastIndexOf('_');
+                    var source = lastUnderscore > 0 ? rest.slice(0, lastUnderscore) : rest;
+                    var kind   = lastUnderscore > 0 ? rest.slice(lastUnderscore + 1) : '';
+                    if (kind === 'all') return; // заглушка
                     Lampa.Activity.push({
                         url: '',
-                        title: card_data.trakt_folder_source_title + ' — ' + (card_data.trakt_folder_kind === 'shows' ? 'Сериалы' : 'Фильмы'),
+                        title: card_data.original_title || card_data.title || (kind === 'shows' ? 'Сериалы' : 'Фильмы'),
                         component: FOLDER_COMPONENT,
-                        trakt_folder_source: card_data.trakt_folder_source,
-                        trakt_folder_kind: card_data.trakt_folder_kind,
+                        trakt_folder_source: source,
+                        trakt_folder_kind: kind,
                         page: 1
                     });
                     return;
