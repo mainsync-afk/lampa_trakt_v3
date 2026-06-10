@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.1.50';
+    var VERSION = '0.1.51';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -775,31 +775,15 @@
                 + '.trakt-progress{position:absolute;left:0;right:0;bottom:0;height:4px;background:rgba(0,0,0,0.45);z-index:30;pointer-events:none;overflow:hidden;}'
                 + '.trakt-progress__fill{height:100%;background:#1e88e5;transition:width .2s ease;}'
                 + '.trakt-progress--returning .trakt-progress__fill{background:#fb8c00;}'
-                // Папка-карточка: визуал ВНУТРИ нативной .card__view.
-                // Фиксируем aspect-ratio чтобы card__view имела высоту независимо от
-                // содержимого (Lampa-native img.card_broken не даёт ей высоты).
-                + '.card.trakt-folder-card .card__view{position:relative;background:transparent !important;padding:0 !important;overflow:hidden;aspect-ratio:2/3;}'
-                + '.card.trakt-folder-card .card__view > img,'
-                + '.card.trakt-folder-card .card__view > .card__icons,'
-                + '.card.trakt-folder-card .card__view > .card__quality,'
-                + '.card.trakt-folder-card .card__view > .card__type,'
-                + '.card.trakt-folder-card .card__view > .card__age,'
-                + '.card.trakt-folder-card .card__view > .card-watched{display:none !important;}'
-                + '.card.trakt-folder-card .card__title{display:none !important;}'
-                // Wrap в обычном flow (НЕ absolute) — занимает всю card__view.
-                + '.trakt-folder-wrap{width:100%;height:100%;display:flex;flex-direction:column;box-sizing:border-box;}'
-                // Tab: верхняя плашка слева, ~6% высоты, ~38% ширины — «вкладка папки».
-                + '.trakt-folder-tab{height:6%;width:38%;background:#2c3033;border-radius:0.4em 0.4em 0 0;}'
-                // Body: основное тело с коллажем и подписью. Top-left угол НЕ round
-                // (там tab «сидит»), остальные round.
-                + '.trakt-folder-body{flex:1;background:#1D1F20;border-radius:0 0.5em 0.5em 0.5em;padding:0.4em;display:flex;flex-direction:column;box-sizing:border-box;min-height:0;}'
-                // Collage: 3 столбца, постеры 2/3.
-                + '.trakt-folder-collage{display:grid;grid-template-columns:repeat(3,1fr);gap:0.2em;}'
-                + '.trakt-folder-tile{aspect-ratio:2/3;background-size:cover;background-position:center;background-repeat:no-repeat;background-color:#263238;border-radius:0.15em;}'
-                // Label под коллажем — увеличенный шрифт.
-                + '.trakt-folder-label{flex:1;padding:0.5em 0.4em 0.2em;display:flex;flex-direction:column;justify-content:center;min-height:0;}'
-                + '.trakt-folder-label__title{color:#eceff1;font-size:1.2em;font-weight:500;line-height:1.15;}'
-                + '.trakt-folder-label__count{color:#90a4ae;font-size:0.85em;margin-top:0.2em;}'
+                // Папка-карточка (Сериалы / Фильмы / Все) — простая SVG-иконка в
+                // центре поля card__view, фон-градиент. Native Lampa-структура и
+                // focus не трогаются.
+                + '.card.trakt-folder-card .card__view{background:linear-gradient(135deg,#37474f 0%,#263238 100%);display:flex;align-items:center;justify-content:center;}'
+                + '.card.trakt-folder-card .card__view > img,.card.trakt-folder-card .card__icons,.card.trakt-folder-card .card__quality,.card.trakt-folder-card .card__type,.card.trakt-folder-card .card__age{display:none !important;}'
+                + '.card.trakt-folder-card .card__view::before{content:"";display:block;width:46%;height:46%;background:no-repeat center/contain;}'
+                + '.card.trakt-folder-card[data-folder-kind="shows"] .card__view::before{background-image:url("data:image/svg+xml;utf8,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 24 24\' fill=\'%23eceff1\'%3E%3Cpath d=\'M21 3H3a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h7v2H7v2h10v-2h-3v-2h7a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm0 14H3V5h18v12z\'/%3E%3C/svg%3E");}'
+                + '.card.trakt-folder-card[data-folder-kind="movies"] .card__view::before{background-image:url("data:image/svg+xml;utf8,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 24 24\' fill=\'%23eceff1\'%3E%3Cpath d=\'M18 4l2 4h-3l-2-4h-2l2 4h-3l-2-4H8l2 4H7L5 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V4h-4z\'/%3E%3C/svg%3E");}'
+                + '.card.trakt-folder-card[data-folder-kind="all"] .card__view::before{background-image:url("data:image/svg+xml;utf8,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 24 24\' fill=\'%23eceff1\'%3E%3Cpath d=\'M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2z\'/%3E%3C/svg%3E");}'
                 // FolderComponent grid: 6 карточек на ряд, растянутые по ширине,
                 // без горизонтального скролла.
                 + '.trakt_v3_folder .items-line__body{display:flex !important;flex-wrap:nowrap;width:100% !important;padding:0 !important;}'
@@ -950,30 +934,6 @@
             try {
                 cardEl.classList.add('trakt-folder-card');
                 cardEl.setAttribute('data-folder-kind', d.trakt_folder_kind || '');
-                var view = cardEl.querySelector('.card__view');
-                if (view && !view.querySelector('.trakt-folder-wrap')) {
-                    var posters = Array.isArray(d.trakt_folder_posters) ? d.trakt_folder_posters : [];
-                    var nameMap = { shows: 'Сериалы', movies: 'Фильмы', all: 'Все' };
-                    var labelTitle = nameMap[d.trakt_folder_kind] || (d.original_title || '');
-                    var count = d.trakt_folder_count || 0;
-                    var tilesHtml = '';
-                    for (var i = 0; i < Math.min(posters.length, 6); i++) {
-                        tilesHtml += '<div class="trakt-folder-tile" style="background-image:url(\'' + posters[i] + '\');"></div>';
-                    }
-                    var wrap = document.createElement('div');
-                    wrap.className = 'trakt-folder-wrap';
-                    wrap.innerHTML =
-                        '<div class="trakt-folder-tab"></div>' +
-                        '<div class="trakt-folder-body">' +
-                            '<div class="trakt-folder-collage">' + tilesHtml + '</div>' +
-                            '<div class="trakt-folder-label">' +
-                                '<div class="trakt-folder-label__title">' + labelTitle + '</div>' +
-                                '<div class="trakt-folder-label__count">' + count + ' шт.</div>' +
-                            '</div>' +
-                        '</div>';
-                    if (posters.length > 0) cardEl.classList.add('trakt-folder-card--has-collage');
-                    view.appendChild(wrap);
-                }
             } catch (_) {}
             return; // badges/progress на папках не нужны
         }
@@ -1340,12 +1300,11 @@
         //   trakt_folder_source: folder.id ('watchlist' / 'returning' / 'completed' / ...)
         //   trakt_folder_count: число для отображения в подписи
         //   id-prefix 'trakt_folder_' — distinguish от обычных карточек.
-        function buildFolderCard(sourceId, kind, count, title, posters) {
+        function buildFolderCard(sourceId, kind, count, title) {
             return {
                 id: 'trakt_folder_' + sourceId + '_' + kind,
                 // method='collection' — НЕ открывает 'full' автоматом
-                // (если поставить 'tv'/'movie' — Lampa.Card push'ит full
-                // поверх нашего FolderComponent → пустой чёрный экран).
+                // (если поставить 'tv'/'movie' — Lampa.Card push'ит full).
                 method: 'collection',
                 card_type: 'collection',
                 source: 'tmdb',
@@ -1359,9 +1318,7 @@
                 trakt_folder_kind: kind,
                 trakt_folder_source: sourceId,
                 trakt_folder_source_title: '',
-                trakt_folder_count: count,
-                // 6 постеров для коллажа 3×2 (top items секции этого kind).
-                trakt_folder_posters: Array.isArray(posters) ? posters.slice(0, 6) : []
+                trakt_folder_count: count
             };
         }
 
@@ -1375,13 +1332,9 @@
             }
             var shows  = items.filter(function (c) { return c.method === 'tv'; });
             var movies = items.filter(function (c) { return c.method === 'movie'; });
-            function postersOf(arr) {
-                return arr.slice(0, 6).map(function (c) { return c.poster || c.img || c.poster_path; })
-                    .filter(function (p) { return !!p; });
-            }
             var head = [];
-            if (shows.length  > 0) head.push(buildFolderCard(folder.id, 'shows',  shows.length,  'Сериалы', postersOf(shows)));
-            if (movies.length > 0) head.push(buildFolderCard(folder.id, 'movies', movies.length, 'Фильмы', postersOf(movies)));
+            if (shows.length  > 0) head.push(buildFolderCard(folder.id, 'shows',  shows.length,  'Сериалы'));
+            if (movies.length > 0) head.push(buildFolderCard(folder.id, 'movies', movies.length, 'Фильмы'));
             var top = items.slice(0, ROW_LIMIT);
             var tail = [];
             if (items.length > ROW_LIMIT) {
