@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.1.26';
+    var VERSION = '0.1.27';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -781,7 +781,13 @@
                 + '.card.trakt-folder-card .card__view::before{content:"";display:block;width:46%;height:46%;background:no-repeat center/contain;}'
                 + '.card.trakt-folder-card[data-folder-kind="shows"] .card__view::before{background-image:url("data:image/svg+xml;utf8,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 24 24\' fill=\'%23eceff1\'%3E%3Cpath d=\'M21 3H3a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h7v2H7v2h10v-2h-3v-2h7a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm0 14H3V5h18v12z\'/%3E%3C/svg%3E");}'
                 + '.card.trakt-folder-card[data-folder-kind="movies"] .card__view::before{background-image:url("data:image/svg+xml;utf8,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 24 24\' fill=\'%23eceff1\'%3E%3Cpath d=\'M18 4l2 4h-3l-2-4h-2l2 4h-3l-2-4H8l2 4H7L5 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V4h-4z\'/%3E%3C/svg%3E");}'
-                + '.card.trakt-folder-card[data-folder-kind="all"] .card__view::before{background-image:url("data:image/svg+xml;utf8,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 24 24\' fill=\'%23eceff1\'%3E%3Cpath d=\'M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2z\'/%3E%3C/svg%3E");}';
+                + '.card.trakt-folder-card[data-folder-kind="all"] .card__view::before{background-image:url("data:image/svg+xml;utf8,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 24 24\' fill=\'%23eceff1\'%3E%3Cpath d=\'M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2z\'/%3E%3C/svg%3E");}'
+                // FolderComponent grid: 6 карточек на ряд, растянутые по ширине,
+                // без горизонтального скролла.
+                + '.trakt_v3_folder .items-line__body{display:flex !important;flex-wrap:nowrap;width:100% !important;padding:0 !important;}'
+                + '.trakt_v3_folder .items-line .card{width:calc((100% - 6 * 1em) / 6) !important;margin:0 0.5em !important;flex:0 0 auto;}'
+                + '.trakt_v3_folder .items-line__head{padding-left:0.5em;}'
+                + '.trakt_v3_folder .items-line{padding:0 0.5em;margin-bottom:1em;}';
             var st = document.createElement('style');
             st.id = 'trakt_v3_badges_style';
             st.textContent = css;
@@ -1371,7 +1377,7 @@
         var self = this;
         // 7 cards на ряд — на большинстве TV/PWA даёт почти-grid без огромных пустот.
         // Если Eugene увидит, что 6 лучше — поменяем.
-        var PER_ROW = 7;
+        var PER_ROW = 6;
         var scroll = new Lampa.Scroll({ mask: true, over: true, step: 250 });
         var html = $('<div class="trakt_v3_folder"></div>');
         var body = $('<div class="trakt_v3_folder__body"></div>');
