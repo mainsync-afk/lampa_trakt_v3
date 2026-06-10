@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.1.35';
+    var VERSION = '0.1.37';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -794,9 +794,12 @@
                 + '.card.trakt-folder-card.focus,.card.trakt-folder-card.selector.focused,.card.trakt-folder-card.hover{transform:scale(1.04);}'
                 // Шапка Lampa поверх нашей главной — добавляем background чтобы карточки не просвечивали.
                 // Шапка: непрозрачный фон в тон Activity (как внутри папок).
-                + 'body.trakt_v3_active .head{background:#1c1c1c;}'
-                // Фикс прыжка: до загрузки постера фиксируем aspect-ratio cards,
-                // чтобы высота ряда не менялась после lazy-load изображений.
+                + 'body.trakt_v3_active .head{background:#1D1F20;}'
+                // Фикс прыжка: фиксируем min-height ряда (наибольшая ожидаемая высота
+                // card), чтобы lazy-load новых карточек не растягивал ряд и не
+                // сдвигал нижние секции. Высота подобрана под текущий PER_ROW=6 +
+                // стандартную card-высоту 16em + place под title + paddings.
+                + '.trakt_v3 .items-line__body{min-height:20em;}'
                 + '.trakt_v3 .card .card__view{aspect-ratio:2/3;}';
             var st = document.createElement('style');
             st.id = 'trakt_v3_badges_style';
