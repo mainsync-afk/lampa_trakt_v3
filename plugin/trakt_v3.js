@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.1.31';
+    var VERSION = '0.1.32';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -1259,7 +1259,8 @@
             line.onBack = self.back;
             line.onToggle = function () {
                 lastFocused = line;
-                try { scroll.update($(line.render(true)), true); } catch (_) {}
+                // false → выровнять активную строку к верху (true бы центрировал).
+                try { scroll.update($(line.render(true)), false); } catch (_) {}
             };
             return line;
         }
@@ -1505,7 +1506,8 @@
             line.onBack = self.back;
             line.onToggle = function () {
                 lastFocused = line;
-                try { scroll.update($(line.render(true)), true); } catch (_) {}
+                // false → выровнять активную строку к верху (true бы центрировал).
+                try { scroll.update($(line.render(true)), false); } catch (_) {}
             };
             return line;
         }
