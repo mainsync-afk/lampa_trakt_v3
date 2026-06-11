@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.1.52';
+    var VERSION = '0.1.53';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -775,11 +775,12 @@
                 + '.trakt-progress{position:absolute;left:0;right:0;bottom:0;height:4px;background:rgba(0,0,0,0.45);z-index:30;pointer-events:none;overflow:hidden;}'
                 + '.trakt-progress__fill{height:100%;background:#1e88e5;transition:width .2s ease;}'
                 + '.trakt-progress--returning .trakt-progress__fill{background:#fb8c00;}'
-                // Папка-карточка (Сериалы / Фильмы / Все) — clip-path вырезает из
-                // прямоугольника форму папки с табом-выступом слева сверху.
-                // Native focus-рамка Lampa на .card НЕ зависит от формы card__view,
-                // т.е. остаётся прямоугольной (можно потом подкорректировать).
-                + '.card.trakt-folder-card .card__view{background:linear-gradient(135deg,#37474f 0%,#263238 100%);display:flex;align-items:center;justify-content:center;clip-path:polygon(0 0, 36% 0, 40% 8%, 100% 8%, 100% 100%, 0 100%);}'
+                // Папка-карточка: native border-radius card__view сохраняется
+                // (clip-path не используем — он обнулил бы скругление темы).
+                // Tab — через ::before абсолютно сверху-слева, темнее чем body,
+                // визуально читается как «вкладка папки».
+                + '.card.trakt-folder-card .card__view{background:linear-gradient(135deg,#37474f 0%,#263238 100%);display:flex;align-items:center;justify-content:center;position:relative;}'
+                + '.card.trakt-folder-card .card__view::before{content:"";position:absolute;top:0;left:0;width:36%;height:8%;background:#1a1c1e;border-radius:0.6em 0 0.4em 0;z-index:1;}'
                 + '.card.trakt-folder-card .card__view > img,.card.trakt-folder-card .card__icons,.card.trakt-folder-card .card__quality,.card.trakt-folder-card .card__type,.card.trakt-folder-card .card__age{display:none !important;}'
                 + '.card.trakt-folder-card .card__view::before{content:"";display:block;width:46%;height:46%;background:no-repeat center/contain;}'
                 + '.card.trakt-folder-card[data-folder-kind="shows"] .card__view::before{background-image:url("data:image/svg+xml;utf8,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 24 24\' fill=\'%23eceff1\'%3E%3Cpath d=\'M21 3H3a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h7v2H7v2h10v-2h-3v-2h7a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm0 14H3V5h18v12z\'/%3E%3C/svg%3E");}'
