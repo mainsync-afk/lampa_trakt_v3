@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.1.63';
+    var VERSION = '0.1.64';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -792,12 +792,9 @@
                 // Collage 3×2 над gradient, под label. Tiles с aspect-ratio 2/3.
                 + '.trakt-folder-collage{position:absolute;left:0.5em;right:0.5em;top:17%;bottom:28%;display:grid;grid-template-columns:repeat(3,1fr);gap:0.25em;align-content:center;justify-items:center;z-index:1;}'
                 + '.trakt-folder-tile{width:100%;aspect-ratio:2/3;background-size:contain;background-position:center;background-repeat:no-repeat;background-color:#263238;border-radius:0.2em;}'
-                // Для "Все" — 4×3 имитация без реальных постеров.
-                + '.trakt-folder-collage--all{grid-template-columns:repeat(4,1fr);gap:0.18em;}'
-                + '.trakt-folder-tile--fake{background-color:rgba(176,190,197,0.18);border:1px solid rgba(176,190,197,0.12);}'
-                + '.trakt-folder-tile--fake:nth-child(2n){background-color:rgba(176,190,197,0.13);}'
-                + '.trakt-folder-tile--fake:nth-child(3n){background-color:rgba(176,190,197,0.22);}'
-                + '.trakt-folder-tile--fake:nth-child(5n){background-color:rgba(176,190,197,0.10);}'
+                // Для "Все" — 8×6 имитация постеров (без реальных).
+                + '.trakt-folder-collage--all{grid-template-columns:repeat(8,1fr);grid-template-rows:repeat(6,auto);gap:0.08em;}'
+                + '.trakt-folder-tile--fake{width:100%;aspect-ratio:2/3;border-radius:0.08em;}'
                 // Label внизу карточки, поверх всего, слева (без центрирования).
                 + '.trakt-folder-label{position:absolute;left:0;right:0;bottom:0;padding:0.7em 0.8em 0.9em;z-index:2;color:#eceff1;text-shadow:0 1px 3px rgba(0,0,0,0.5);pointer-events:none;text-align:left;}'
                 + '.trakt-folder-label__title{font-size:1.4em;font-weight:500;line-height:1.15;}'
@@ -980,11 +977,30 @@
                     var posters = Array.isArray(d.trakt_folder_posters) ? d.trakt_folder_posters : [];
                     var collage = document.createElement('div');
                     if (d.trakt_folder_kind === 'all') {
-                        // Имитация: 12 плашек 4×3 без реальных постеров.
+                        // Имитация постеров: 48 плашек 8×6 разных тонов
+                        // (как множество разноцветных постеров издалека).
                         collage.className = 'trakt-folder-collage trakt-folder-collage--all';
-                        for (var ai = 0; ai < 12; ai++) {
+                        var palette = [
+                            'linear-gradient(160deg,#264d73,#11233a)',
+                            'linear-gradient(160deg,#5a2b2b,#2a1010)',
+                            'linear-gradient(160deg,#8a7224,#3a3010)',
+                            'linear-gradient(160deg,#2e5a2e,#103010)',
+                            'linear-gradient(160deg,#522e5a,#2a1530)',
+                            'linear-gradient(160deg,#8a4d24,#3a1f10)',
+                            'linear-gradient(160deg,#2a4a6e,#0e1c34)',
+                            'linear-gradient(160deg,#6a5430,#2a1e10)',
+                            'linear-gradient(160deg,#2e6a5a,#10302a)',
+                            'linear-gradient(160deg,#7a3a3a,#2a1010)',
+                            'linear-gradient(160deg,#3a3a7a,#10103a)',
+                            'linear-gradient(160deg,#5a5a3a,#2a2a10)'
+                        ];
+                        // Pseudo-random pick — stable per index, без shuffle.
+                        for (var ai = 0; ai < 48; ai++) {
                             var ftile = document.createElement('div');
                             ftile.className = 'trakt-folder-tile trakt-folder-tile--fake';
+                            // mix: разная последовательность чтобы соседние плашки отличались
+                            var picked = palette[(ai * 7 + 3) % palette.length];
+                            ftile.style.background = picked;
                             collage.appendChild(ftile);
                         }
                         view.appendChild(collage);
@@ -1391,9 +1407,15 @@
         // обрезаем top ROW_LIMIT, append «Все» если total > лимита.
         function expandSectionItems(folder) {
             var items = folder.items || [];
-            if (folder.id === 'continue_watching') {
-                // Смотрю: без папок и без Все, просто top ROW_LIMIT.
-                return items.slice(0, ROW_LIMIT);
+            // Секции без папок Сериалы/Фильмы (только сериалы по бизнес-логике):
+            //   continue_watching ("Смотрю"), returning ("Продолжение следует")
+            if (folder.id === 'continue_watching' || folder.id === 'returning') {
+                var topNoFolders = items.slice(0, ROW_LIMIT);
+                var tailNoFolders = [];
+                if (items.length > ROW_LIMIT) {
+                    tailNoFolders.push(buildFolderCard(folder.id, 'all', items.length, 'Все'));
+                }
+                return topNoFolders.concat(tailNoFolders);
             }
             var shows  = items.filter(function (c) { return c.method === 'tv'; });
             var movies = items.filter(function (c) { return c.method === 'movie'; });
@@ -1403,9 +1425,7 @@
             }
             var head = [];
             if (shows.length  > 0) head.push(buildFolderCard(folder.id, 'shows',  shows.length,  'Сериалы', postersOf(shows)));
-            // В Returning по бизнес-логике фильмов не бывает — не показываем папку.
-            if (movies.length > 0 && folder.id !== 'returning')
-                head.push(buildFolderCard(folder.id, 'movies', movies.length, 'Фильмы', postersOf(movies)));
+            if (movies.length > 0) head.push(buildFolderCard(folder.id, 'movies', movies.length, 'Фильмы', postersOf(movies)));
             var top = items.slice(0, ROW_LIMIT);
             var tail = [];
             if (items.length > ROW_LIMIT) {
