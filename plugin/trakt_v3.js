@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.1.60';
+    var VERSION = '0.1.61';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -783,15 +783,19 @@
                 + '.card.trakt-folder-card .card__view{background:transparent !important;position:relative;}'
                 + '.card.trakt-folder-card .card__view > img,.card.trakt-folder-card .card__icons,.card.trakt-folder-card .card__quality,.card.trakt-folder-card .card__type,.card.trakt-folder-card .card__age{display:none !important;}'
                 + '.card.trakt-folder-card .card__title{display:none !important;}'
-                + '.card.trakt-folder-card .card__view::before{content:"";position:absolute;inset:0;background:linear-gradient(135deg,#37474f 0%,#263238 100%);clip-path:polygon(0 8%, 8% 8%, 12% 0, 64% 0, 68% 8%, 100% 8%, 100% 100%, 0 100%);border-radius:var(--trakt-folder-radius,0);}'
-                // Collage 3×2 над gradient, под label. Tiles с aspect-ratio 2/3 —
-                // постеры в родных пропорциях, без cover-обрезки.
+                + '.card.trakt-folder-card .card__view::before{content:"";position:absolute;inset:0;background:linear-gradient(135deg,#37474f 0%,#263238 100%);clip-path:polygon(0 4%, 100% 4%, 100% 100%, 0 100%);border-radius:var(--trakt-folder-radius,0);}'
+                // Зажим планшета: широкая металлическая полоса сверху по центру
+                // с винтиком (через ::after).
+                + '.trakt-folder-clip{position:absolute;left:27%;right:27%;top:0;height:8%;background:#78909c;border-radius:0.5em;z-index:3;}'
+                + '.trakt-folder-clip::before{content:"";position:absolute;left:0;right:0;top:0;height:18%;background:#b0bec5;border-radius:0.5em 0.5em 0 0;}'
+                + '.trakt-folder-clip::after{content:"";position:absolute;left:50%;top:50%;width:0.6em;height:0.6em;border-radius:50%;background:#263238;border:1px solid #37474f;transform:translate(-50%,-50%);}'
+                // Collage 3×2 над gradient, под label. Tiles с aspect-ratio 2/3.
                 + '.trakt-folder-collage{position:absolute;left:0.5em;right:0.5em;top:11%;bottom:30%;display:grid;grid-template-columns:repeat(3,1fr);gap:0.25em;align-content:center;justify-items:center;z-index:1;}'
                 + '.trakt-folder-tile{width:100%;aspect-ratio:2/3;background-size:contain;background-position:center;background-repeat:no-repeat;background-color:#263238;border-radius:0.2em;}'
-                // Label внизу карточки, поверх всего.
-                + '.trakt-folder-label{position:absolute;left:0;right:0;bottom:0;padding:0.7em 0.8em 0.9em;z-index:2;color:#eceff1;text-shadow:0 1px 3px rgba(0,0,0,0.5);pointer-events:none;}'
-                + '.trakt-folder-label__title{font-size:1.6em;font-weight:500;line-height:1.15;}'
-                + '.trakt-folder-label__count{font-size:1em;color:#b0bec5;margin-top:0.3em;}'
+                // Label внизу карточки, поверх всего, слева (без центрирования).
+                + '.trakt-folder-label{position:absolute;left:0;right:0;bottom:0;padding:0.7em 0.8em 0.9em;z-index:2;color:#eceff1;text-shadow:0 1px 3px rgba(0,0,0,0.5);pointer-events:none;text-align:left;}'
+                + '.trakt-folder-label__title{font-size:1.4em;font-weight:500;line-height:1.15;}'
+                + '.trakt-folder-label__count{font-size:0.95em;color:#b0bec5;margin-top:0.3em;}'
                 // FolderComponent grid: 6 карточек на ряд, растянутые по ширине,
                 // без горизонтального скролла.
                 + '.trakt_v3_folder .items-line__body{display:flex !important;flex-wrap:nowrap;width:100% !important;padding:0 !important;}'
@@ -960,6 +964,11 @@
                         '<div class="trakt-folder-label__title">' + labelTitle + '</div>' +
                         '<div class="trakt-folder-label__count">' + count + ' шт.</div>';
                     view.appendChild(label);
+                }
+                if (view && !view.querySelector('.trakt-folder-clip')) {
+                    var clip = document.createElement('div');
+                    clip.className = 'trakt-folder-clip';
+                    view.appendChild(clip);
                 }
                 if (view && !view.querySelector('.trakt-folder-collage')) {
                     var posters = Array.isArray(d.trakt_folder_posters) ? d.trakt_folder_posters : [];
