@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.1.58';
+    var VERSION = '0.1.59';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -783,10 +783,11 @@
                 + '.card.trakt-folder-card .card__view{background:transparent !important;position:relative;}'
                 + '.card.trakt-folder-card .card__view > img,.card.trakt-folder-card .card__icons,.card.trakt-folder-card .card__quality,.card.trakt-folder-card .card__type,.card.trakt-folder-card .card__age{display:none !important;}'
                 + '.card.trakt-folder-card .card__title{display:none !important;}'
-                + '.card.trakt-folder-card .card__view::before{content:"";position:absolute;inset:0;background:linear-gradient(135deg,#37474f 0%,#263238 100%);clip-path:polygon(0 8%, 8% 8%, 12% 0, 36% 0, 40% 8%, 100% 8%, 100% 100%, 0 100%);border-radius:var(--trakt-folder-radius,0);}'
-                // Collage 3×2 над gradient, под label.
-                + '.trakt-folder-collage{position:absolute;left:0.5em;right:0.5em;top:14%;bottom:34%;display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:1fr 1fr;gap:0.25em;z-index:1;}'
-                + '.trakt-folder-tile{background-size:cover;background-position:center;background-color:#263238;border-radius:0.2em;}'
+                + '.card.trakt-folder-card .card__view::before{content:"";position:absolute;inset:0;background:linear-gradient(135deg,#37474f 0%,#263238 100%);clip-path:polygon(0 8%, 8% 8%, 12% 0, 64% 0, 68% 8%, 100% 8%, 100% 100%, 0 100%);border-radius:var(--trakt-folder-radius,0);}'
+                // Collage 3×2 над gradient, под label. Tiles с aspect-ratio 2/3 —
+                // постеры в родных пропорциях, без cover-обрезки.
+                + '.trakt-folder-collage{position:absolute;left:0.5em;right:0.5em;top:11%;bottom:30%;display:grid;grid-template-columns:repeat(3,1fr);gap:0.25em;align-content:center;justify-items:center;z-index:1;}'
+                + '.trakt-folder-tile{width:100%;aspect-ratio:2/3;background-size:contain;background-position:center;background-repeat:no-repeat;background-color:#263238;border-radius:0.2em;}'
                 // Label внизу карточки, поверх всего.
                 + '.trakt-folder-label{position:absolute;left:0;right:0;bottom:0;padding:0.7em 0.8em 0.9em;z-index:2;color:#eceff1;text-shadow:0 1px 3px rgba(0,0,0,0.5);pointer-events:none;}'
                 + '.trakt-folder-label__title{font-size:1.2em;font-weight:500;line-height:1.2;}'
