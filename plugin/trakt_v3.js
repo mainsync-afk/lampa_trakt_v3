@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.1.56';
+    var VERSION = '0.1.57';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -778,10 +778,16 @@
                 // Папка-карточка: ::before рисует gradient + форму папки (clip-path)
                 // + native border-radius из темы (передаётся runtime через
                 // --trakt-folder-radius из card__img). overflow:hidden НЕ ставим —
-                // иначе Lampa-focus теряется.
+                // иначе Lampa-focus теряется. Tab сдвинут вправо от 8% (не от 0)
+                // чтобы не попасть на round-угол.
                 + '.card.trakt-folder-card .card__view{background:transparent !important;position:relative;}'
                 + '.card.trakt-folder-card .card__view > img,.card.trakt-folder-card .card__icons,.card.trakt-folder-card .card__quality,.card.trakt-folder-card .card__type,.card.trakt-folder-card .card__age{display:none !important;}'
-                + '.card.trakt-folder-card .card__view::before{content:"";position:absolute;inset:0;background:linear-gradient(135deg,#37474f 0%,#263238 100%);clip-path:polygon(0 0, 36% 0, 40% 8%, 100% 8%, 100% 100%, 0 100%);border-radius:var(--trakt-folder-radius,0);}'
+                + '.card.trakt-folder-card .card__title{display:none !important;}'
+                + '.card.trakt-folder-card .card__view::before{content:"";position:absolute;inset:0;background:linear-gradient(135deg,#37474f 0%,#263238 100%);clip-path:polygon(0 8%, 8% 8%, 8% 0, 36% 0, 40% 8%, 100% 8%, 100% 100%, 0 100%);border-radius:var(--trakt-folder-radius,0);}'
+                // Label внутри card__view, в нижней части. Z-index выше gradient.
+                + '.trakt-folder-label{position:absolute;left:0;right:0;bottom:0;padding:0.7em 0.8em 0.9em;z-index:2;color:#eceff1;text-shadow:0 1px 3px rgba(0,0,0,0.5);pointer-events:none;}'
+                + '.trakt-folder-label__title{font-size:1.2em;font-weight:500;line-height:1.2;}'
+                + '.trakt-folder-label__count{font-size:0.85em;color:#b0bec5;margin-top:0.25em;}'
                 // FolderComponent grid: 6 карточек на ряд, растянутые по ширине,
                 // без горизонтального скролла.
                 + '.trakt_v3_folder .items-line__body{display:flex !important;flex-wrap:nowrap;width:100% !important;padding:0 !important;}'
@@ -933,11 +939,23 @@
                 cardEl.classList.add('trakt-folder-card');
                 cardEl.setAttribute('data-folder-kind', d.trakt_folder_kind || '');
                 // Считываем border-radius из обычной .card__img (тема Lampa).
-                // Передаём через CSS-переменную в ::before нашей папки.
                 var refImg = document.querySelector('.card:not(.trakt-folder-card) .card__img');
                 if (refImg) {
                     var br = getComputedStyle(refImg).borderRadius;
                     if (br && br !== '0px') cardEl.style.setProperty('--trakt-folder-radius', br);
+                }
+                // Inject label внутрь card__view (название + счётчик).
+                var view = cardEl.querySelector('.card__view');
+                if (view && !view.querySelector('.trakt-folder-label')) {
+                    var nameMap = { shows: 'Сериалы', movies: 'Фильмы', all: 'Все' };
+                    var labelTitle = nameMap[d.trakt_folder_kind] || (d.original_title || '');
+                    var count = d.trakt_folder_count || 0;
+                    var label = document.createElement('div');
+                    label.className = 'trakt-folder-label';
+                    label.innerHTML =
+                        '<div class="trakt-folder-label__title">' + labelTitle + '</div>' +
+                        '<div class="trakt-folder-label__count">' + count + ' шт.</div>';
+                    view.appendChild(label);
                 }
             } catch (_) {}
             return; // badges/progress на папках не нужны
