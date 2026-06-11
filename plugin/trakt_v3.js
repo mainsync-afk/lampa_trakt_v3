@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.1.59';
+    var VERSION = '0.1.60';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -790,8 +790,8 @@
                 + '.trakt-folder-tile{width:100%;aspect-ratio:2/3;background-size:contain;background-position:center;background-repeat:no-repeat;background-color:#263238;border-radius:0.2em;}'
                 // Label внизу карточки, поверх всего.
                 + '.trakt-folder-label{position:absolute;left:0;right:0;bottom:0;padding:0.7em 0.8em 0.9em;z-index:2;color:#eceff1;text-shadow:0 1px 3px rgba(0,0,0,0.5);pointer-events:none;}'
-                + '.trakt-folder-label__title{font-size:1.2em;font-weight:500;line-height:1.2;}'
-                + '.trakt-folder-label__count{font-size:0.85em;color:#b0bec5;margin-top:0.25em;}'
+                + '.trakt-folder-label__title{font-size:1.6em;font-weight:500;line-height:1.15;}'
+                + '.trakt-folder-label__count{font-size:1em;color:#b0bec5;margin-top:0.3em;}'
                 // FolderComponent grid: 6 карточек на ряд, растянутые по ширине,
                 // без горизонтального скролла.
                 + '.trakt_v3_folder .items-line__body{display:flex !important;flex-wrap:nowrap;width:100% !important;padding:0 !important;}'
