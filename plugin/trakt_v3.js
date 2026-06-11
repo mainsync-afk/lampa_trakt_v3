@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.1.62';
+    var VERSION = '0.1.63';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -792,6 +792,12 @@
                 // Collage 3×2 над gradient, под label. Tiles с aspect-ratio 2/3.
                 + '.trakt-folder-collage{position:absolute;left:0.5em;right:0.5em;top:17%;bottom:28%;display:grid;grid-template-columns:repeat(3,1fr);gap:0.25em;align-content:center;justify-items:center;z-index:1;}'
                 + '.trakt-folder-tile{width:100%;aspect-ratio:2/3;background-size:contain;background-position:center;background-repeat:no-repeat;background-color:#263238;border-radius:0.2em;}'
+                // Для "Все" — 4×3 имитация без реальных постеров.
+                + '.trakt-folder-collage--all{grid-template-columns:repeat(4,1fr);gap:0.18em;}'
+                + '.trakt-folder-tile--fake{background-color:rgba(176,190,197,0.18);border:1px solid rgba(176,190,197,0.12);}'
+                + '.trakt-folder-tile--fake:nth-child(2n){background-color:rgba(176,190,197,0.13);}'
+                + '.trakt-folder-tile--fake:nth-child(3n){background-color:rgba(176,190,197,0.22);}'
+                + '.trakt-folder-tile--fake:nth-child(5n){background-color:rgba(176,190,197,0.10);}'
                 // Label внизу карточки, поверх всего, слева (без центрирования).
                 + '.trakt-folder-label{position:absolute;left:0;right:0;bottom:0;padding:0.7em 0.8em 0.9em;z-index:2;color:#eceff1;text-shadow:0 1px 3px rgba(0,0,0,0.5);pointer-events:none;text-align:left;}'
                 + '.trakt-folder-label__title{font-size:1.4em;font-weight:500;line-height:1.15;}'
@@ -972,8 +978,17 @@
                 }
                 if (view && !view.querySelector('.trakt-folder-collage')) {
                     var posters = Array.isArray(d.trakt_folder_posters) ? d.trakt_folder_posters : [];
-                    if (posters.length > 0) {
-                        var collage = document.createElement('div');
+                    var collage = document.createElement('div');
+                    if (d.trakt_folder_kind === 'all') {
+                        // Имитация: 12 плашек 4×3 без реальных постеров.
+                        collage.className = 'trakt-folder-collage trakt-folder-collage--all';
+                        for (var ai = 0; ai < 12; ai++) {
+                            var ftile = document.createElement('div');
+                            ftile.className = 'trakt-folder-tile trakt-folder-tile--fake';
+                            collage.appendChild(ftile);
+                        }
+                        view.appendChild(collage);
+                    } else if (posters.length > 0) {
                         collage.className = 'trakt-folder-collage';
                         for (var pi = 0; pi < Math.min(posters.length, 6); pi++) {
                             var tile = document.createElement('div');
@@ -1088,13 +1103,13 @@
             var lastUnderscore = rest.lastIndexOf('_');
             var source = lastUnderscore > 0 ? rest.slice(0, lastUnderscore) : rest;
             var kind   = lastUnderscore > 0 ? rest.slice(lastUnderscore + 1) : '';
-            if (kind === 'all') return;  // заглушка
             try {
-                // Breadcrumbs в заголовке: "Trakt - <Закладки> - <Сериалы>".
+                // Breadcrumbs в заголовке: "Trakt — <Закладки> — <Сериалы/Фильмы/Все>".
                 var snap = window.__trakt_v3_last_folders;
                 var section = snap && Array.isArray(snap.folders) ? snap.folders.find(function(f){return f.id===source;}) : null;
                 var sectionTitle = section ? section.title : source;
-                var kindTitle = kind === 'shows' ? 'Сериалы' : 'Фильмы';
+                var kindTitleMap = { shows: 'Сериалы', movies: 'Фильмы', all: 'Все' };
+                var kindTitle = kindTitleMap[kind] || kind;
                 var breadcrumbs = 'Trakt — ' + sectionTitle + ' — ' + kindTitle;
                 Lampa.Activity.push({
                     url: source + '/' + kind,
@@ -1388,7 +1403,9 @@
             }
             var head = [];
             if (shows.length  > 0) head.push(buildFolderCard(folder.id, 'shows',  shows.length,  'Сериалы', postersOf(shows)));
-            if (movies.length > 0) head.push(buildFolderCard(folder.id, 'movies', movies.length, 'Фильмы', postersOf(movies)));
+            // В Returning по бизнес-логике фильмов не бывает — не показываем папку.
+            if (movies.length > 0 && folder.id !== 'returning')
+                head.push(buildFolderCard(folder.id, 'movies', movies.length, 'Фильмы', postersOf(movies)));
             var top = items.slice(0, ROW_LIMIT);
             var tail = [];
             if (items.length > ROW_LIMIT) {
