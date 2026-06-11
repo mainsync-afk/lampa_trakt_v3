@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.1.57';
+    var VERSION = '0.1.58';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -783,8 +783,11 @@
                 + '.card.trakt-folder-card .card__view{background:transparent !important;position:relative;}'
                 + '.card.trakt-folder-card .card__view > img,.card.trakt-folder-card .card__icons,.card.trakt-folder-card .card__quality,.card.trakt-folder-card .card__type,.card.trakt-folder-card .card__age{display:none !important;}'
                 + '.card.trakt-folder-card .card__title{display:none !important;}'
-                + '.card.trakt-folder-card .card__view::before{content:"";position:absolute;inset:0;background:linear-gradient(135deg,#37474f 0%,#263238 100%);clip-path:polygon(0 8%, 8% 8%, 8% 0, 36% 0, 40% 8%, 100% 8%, 100% 100%, 0 100%);border-radius:var(--trakt-folder-radius,0);}'
-                // Label внутри card__view, в нижней части. Z-index выше gradient.
+                + '.card.trakt-folder-card .card__view::before{content:"";position:absolute;inset:0;background:linear-gradient(135deg,#37474f 0%,#263238 100%);clip-path:polygon(0 8%, 8% 8%, 12% 0, 36% 0, 40% 8%, 100% 8%, 100% 100%, 0 100%);border-radius:var(--trakt-folder-radius,0);}'
+                // Collage 3×2 над gradient, под label.
+                + '.trakt-folder-collage{position:absolute;left:0.5em;right:0.5em;top:14%;bottom:34%;display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:1fr 1fr;gap:0.25em;z-index:1;}'
+                + '.trakt-folder-tile{background-size:cover;background-position:center;background-color:#263238;border-radius:0.2em;}'
+                // Label внизу карточки, поверх всего.
                 + '.trakt-folder-label{position:absolute;left:0;right:0;bottom:0;padding:0.7em 0.8em 0.9em;z-index:2;color:#eceff1;text-shadow:0 1px 3px rgba(0,0,0,0.5);pointer-events:none;}'
                 + '.trakt-folder-label__title{font-size:1.2em;font-weight:500;line-height:1.2;}'
                 + '.trakt-folder-label__count{font-size:0.85em;color:#b0bec5;margin-top:0.25em;}'
@@ -944,7 +947,7 @@
                     var br = getComputedStyle(refImg).borderRadius;
                     if (br && br !== '0px') cardEl.style.setProperty('--trakt-folder-radius', br);
                 }
-                // Inject label внутрь card__view (название + счётчик).
+                // Inject label + collage внутрь card__view.
                 var view = cardEl.querySelector('.card__view');
                 if (view && !view.querySelector('.trakt-folder-label')) {
                     var nameMap = { shows: 'Сериалы', movies: 'Фильмы', all: 'Все' };
@@ -956,6 +959,20 @@
                         '<div class="trakt-folder-label__title">' + labelTitle + '</div>' +
                         '<div class="trakt-folder-label__count">' + count + ' шт.</div>';
                     view.appendChild(label);
+                }
+                if (view && !view.querySelector('.trakt-folder-collage')) {
+                    var posters = Array.isArray(d.trakt_folder_posters) ? d.trakt_folder_posters : [];
+                    if (posters.length > 0) {
+                        var collage = document.createElement('div');
+                        collage.className = 'trakt-folder-collage';
+                        for (var pi = 0; pi < Math.min(posters.length, 6); pi++) {
+                            var tile = document.createElement('div');
+                            tile.className = 'trakt-folder-tile';
+                            tile.style.backgroundImage = 'url("' + posters[pi] + '")';
+                            collage.appendChild(tile);
+                        }
+                        view.appendChild(collage);
+                    }
                 }
             } catch (_) {}
             return; // badges/progress на папках не нужны
@@ -1323,11 +1340,10 @@
         //   trakt_folder_source: folder.id ('watchlist' / 'returning' / 'completed' / ...)
         //   trakt_folder_count: число для отображения в подписи
         //   id-prefix 'trakt_folder_' — distinguish от обычных карточек.
-        function buildFolderCard(sourceId, kind, count, title) {
+        function buildFolderCard(sourceId, kind, count, title, posters) {
             return {
                 id: 'trakt_folder_' + sourceId + '_' + kind,
-                // method='collection' — НЕ открывает 'full' автоматом
-                // (если поставить 'tv'/'movie' — Lampa.Card push'ит full).
+                // method='collection' — НЕ открывает 'full' автоматом.
                 method: 'collection',
                 card_type: 'collection',
                 source: 'tmdb',
@@ -1341,7 +1357,8 @@
                 trakt_folder_kind: kind,
                 trakt_folder_source: sourceId,
                 trakt_folder_source_title: '',
-                trakt_folder_count: count
+                trakt_folder_count: count,
+                trakt_folder_posters: Array.isArray(posters) ? posters.slice(0, 6) : []
             };
         }
 
@@ -1355,9 +1372,13 @@
             }
             var shows  = items.filter(function (c) { return c.method === 'tv'; });
             var movies = items.filter(function (c) { return c.method === 'movie'; });
+            function postersOf(arr) {
+                return arr.slice(0, 6).map(function (c) { return c.poster || c.img || c.poster_path; })
+                    .filter(function (p) { return !!p; });
+            }
             var head = [];
-            if (shows.length  > 0) head.push(buildFolderCard(folder.id, 'shows',  shows.length,  'Сериалы'));
-            if (movies.length > 0) head.push(buildFolderCard(folder.id, 'movies', movies.length, 'Фильмы'));
+            if (shows.length  > 0) head.push(buildFolderCard(folder.id, 'shows',  shows.length,  'Сериалы', postersOf(shows)));
+            if (movies.length > 0) head.push(buildFolderCard(folder.id, 'movies', movies.length, 'Фильмы', postersOf(movies)));
             var top = items.slice(0, ROW_LIMIT);
             var tail = [];
             if (items.length > ROW_LIMIT) {
