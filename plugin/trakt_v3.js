@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.1.61';
+    var VERSION = '0.1.62';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -790,7 +790,7 @@
                 + '.trakt-folder-clip::before{content:"";position:absolute;left:0;right:0;top:0;height:18%;background:#b0bec5;border-radius:0.5em 0.5em 0 0;}'
                 + '.trakt-folder-clip::after{content:"";position:absolute;left:50%;top:50%;width:0.6em;height:0.6em;border-radius:50%;background:#263238;border:1px solid #37474f;transform:translate(-50%,-50%);}'
                 // Collage 3×2 над gradient, под label. Tiles с aspect-ratio 2/3.
-                + '.trakt-folder-collage{position:absolute;left:0.5em;right:0.5em;top:11%;bottom:30%;display:grid;grid-template-columns:repeat(3,1fr);gap:0.25em;align-content:center;justify-items:center;z-index:1;}'
+                + '.trakt-folder-collage{position:absolute;left:0.5em;right:0.5em;top:17%;bottom:28%;display:grid;grid-template-columns:repeat(3,1fr);gap:0.25em;align-content:center;justify-items:center;z-index:1;}'
                 + '.trakt-folder-tile{width:100%;aspect-ratio:2/3;background-size:contain;background-position:center;background-repeat:no-repeat;background-color:#263238;border-radius:0.2em;}'
                 // Label внизу карточки, поверх всего, слева (без центрирования).
                 + '.trakt-folder-label{position:absolute;left:0;right:0;bottom:0;padding:0.7em 0.8em 0.9em;z-index:2;color:#eceff1;text-shadow:0 1px 3px rgba(0,0,0,0.5);pointer-events:none;text-align:left;}'
