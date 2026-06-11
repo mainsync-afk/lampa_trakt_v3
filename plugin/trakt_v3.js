@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.1.55';
+    var VERSION = '0.1.56';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -775,13 +775,13 @@
                 + '.trakt-progress{position:absolute;left:0;right:0;bottom:0;height:4px;background:rgba(0,0,0,0.45);z-index:30;pointer-events:none;overflow:hidden;}'
                 + '.trakt-progress__fill{height:100%;background:#1e88e5;transition:width .2s ease;}'
                 + '.trakt-progress--returning .trakt-progress__fill{background:#fb8c00;}'
-                // Папка-карточка: native border-radius card__view сохраняется.
-                // Форму папки рисуем через ::before внутри card__view (absolute,
-                // clip-path polygon + gradient). overflow:hidden на view обрезает
-                // ::before по native углам → форма папки + скругления темы.
-                + '.card.trakt-folder-card .card__view{background:transparent !important;position:relative;overflow:hidden;}'
+                // Папка-карточка: ::before рисует gradient + форму папки (clip-path)
+                // + native border-radius из темы (передаётся runtime через
+                // --trakt-folder-radius из card__img). overflow:hidden НЕ ставим —
+                // иначе Lampa-focus теряется.
+                + '.card.trakt-folder-card .card__view{background:transparent !important;position:relative;}'
                 + '.card.trakt-folder-card .card__view > img,.card.trakt-folder-card .card__icons,.card.trakt-folder-card .card__quality,.card.trakt-folder-card .card__type,.card.trakt-folder-card .card__age{display:none !important;}'
-                + '.card.trakt-folder-card .card__view::before{content:"";position:absolute;inset:0;background:linear-gradient(135deg,#37474f 0%,#263238 100%);clip-path:polygon(0 0, 36% 0, 40% 8%, 100% 8%, 100% 100%, 0 100%);}'
+                + '.card.trakt-folder-card .card__view::before{content:"";position:absolute;inset:0;background:linear-gradient(135deg,#37474f 0%,#263238 100%);clip-path:polygon(0 0, 36% 0, 40% 8%, 100% 8%, 100% 100%, 0 100%);border-radius:var(--trakt-folder-radius,0);}'
                 // FolderComponent grid: 6 карточек на ряд, растянутые по ширине,
                 // без горизонтального скролла.
                 + '.trakt_v3_folder .items-line__body{display:flex !important;flex-wrap:nowrap;width:100% !important;padding:0 !important;}'
@@ -932,6 +932,13 @@
             try {
                 cardEl.classList.add('trakt-folder-card');
                 cardEl.setAttribute('data-folder-kind', d.trakt_folder_kind || '');
+                // Считываем border-radius из обычной .card__img (тема Lampa).
+                // Передаём через CSS-переменную в ::before нашей папки.
+                var refImg = document.querySelector('.card:not(.trakt-folder-card) .card__img');
+                if (refImg) {
+                    var br = getComputedStyle(refImg).borderRadius;
+                    if (br && br !== '0px') cardEl.style.setProperty('--trakt-folder-radius', br);
+                }
             } catch (_) {}
             return; // badges/progress на папках не нужны
         }
