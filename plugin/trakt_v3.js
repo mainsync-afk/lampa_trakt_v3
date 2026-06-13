@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.2.7';
+    var VERSION = '0.2.8';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -894,19 +894,13 @@
     }
     // Живой прогресс из PlayerVideo/timeupdate (~1/сек) — точнее, чем Timeline-хук.
     // Нужен для корректной проверки порога 80% на паузе и честного % в stop.
+    // Поля в нашем Lampa: e.current (позиция, сек) + e.duration (сек).
     function onPlayerTimeupdate(e) {
         if (!currentPlay || !e) return;
-        // Разовый лог формы payload — чтобы знать имена полей (потом убрать).
-        if (!window.__trakt_v3_tu_logged) {
-            window.__trakt_v3_tu_logged = true;
-            try { console.log('[trakt_v3] timeupdate payload keys=' + Object.keys(e).join(',')
-                + ' time=' + e.time + ' position=' + e.position + ' duration=' + e.duration + ' percent=' + e.percent); } catch (_) {}
-        }
-        var pct = Number(e.percent);
-        if (Number.isFinite(pct) && pct > 0) { currentPlay.progress = Math.round(Math.min(100, pct)); return; }
         var dur = Number(e.duration) || 0;
-        var pos = Number(e.time != null ? e.time : e.position) || 0;
-        if (dur > 0) currentPlay.progress = Math.round(pos / dur * 100);
+        var pos = Number(e.current);
+        if (!Number.isFinite(pos)) pos = Number(e.time != null ? e.time : e.position) || 0;
+        if (dur > 0 && pos >= 0) currentPlay.progress = Math.round(Math.min(100, pos / dur * 100));
     }
 
     function installPlayerScrobbleHook() {
