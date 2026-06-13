@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.2.2';
+    var VERSION = '0.2.3';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -860,14 +860,40 @@
             else { try { console.warn('[trakt_v3] scrobble: identity unresolved', data && data.timeline); } catch (_) {} }
         } catch (e) { try { console.warn('[trakt_v3] scrobble start err', e); } catch (_) {} }
     }
-    function onScrobbleStop() {
-        if (currentPlay) { scrobbleSend('stop'); currentPlay = null; }
+    // Финальный stop: Trakt сам решает watched (>=80%) / resume-точка (<80%).
+    // Шлём один раз и обнуляем сеанс (повторные защищены guard'ом + дедупом Trakt).
+    function finalizeStop() {
+        if (!currentPlay) return;
+        scrobbleSend('stop');
+        currentPlay = null;
     }
     function onScrobbleEnded() {
-        if (currentPlay) { currentPlay.progress = 100; scrobbleSend('stop'); currentPlay = null; }
+        if (currentPlay) currentPlay.progress = 100;
+        finalizeStop();
     }
     function onScrobbleVisibility(e) {
-        if (e && e.hidden && currentPlay) scrobbleSend('pause');
+        // Приложение свернулось/закрывается — финализируем (часто предшествует kill).
+        if (e && e.hidden) finalizeStop();
+    }
+
+    // PlayerVideo (через Lampa.Listener): актуальный прогресс плеера + пауза.
+    function onPlayerVideoEvent(e) {
+        if (!e || !currentPlay) return;
+        if (e.type === 'timeupdate') {
+            var dur = Number(e.duration) || 0;
+            var pos = Number(e.position) || 0;
+            if (dur > 0) {
+                currentPlay.progress = Math.round(pos / dur * 100);
+                currentPlay.time = Math.floor(pos);
+                currentPlay.duration = Math.floor(dur);
+            }
+        } else if (e.type === 'pause') {
+            // Пауза на >=80% → сразу фиксируем watched через stop: переживёт
+            // убийство приложения («поставил на паузу и закрыл Lampa»).
+            // <80% → обычная pause-точка возобновления.
+            if ((currentPlay.progress || 0) >= 80) finalizeStop();
+            else scrobbleSend('pause');
+        }
     }
 
     function installPlayerScrobbleHook() {
@@ -875,14 +901,16 @@
         if (!window.Lampa || !Lampa.Player || !Lampa.Player.listener) return;
         window.__trakt_v3_player_hook_installed = true;
         try {
-            // В нашем Lampa плеер на закрытие шлёт 'destroy' (Player: create/start/
-            // ready/destroy). 'stop'/'ended' слушаем тоже на случай, если фурк их
-            // эмитит — currentPlay-guard не даст отправить stop дважды.
+            // Плеер на закрытие шлёт 'destroy' (Player: create/start/ready/destroy).
+            // 'stop'/'ended' слушаем тоже — guard не даст отправить stop дважды.
             Lampa.Player.listener.follow('start', onScrobbleStart);
-            Lampa.Player.listener.follow('destroy', onScrobbleStop);
-            Lampa.Player.listener.follow('stop', onScrobbleStop);
+            Lampa.Player.listener.follow('destroy', finalizeStop);
+            Lampa.Player.listener.follow('stop', finalizeStop);
             Lampa.Player.listener.follow('ended', onScrobbleEnded);
             Lampa.Player.listener.follow('visibility', onScrobbleVisibility);
+            if (Lampa.Listener && typeof Lampa.Listener.follow === 'function') {
+                Lampa.Listener.follow('PlayerVideo', onPlayerVideoEvent);
+            }
             console.log('[trakt_v3] player scrobble hook installed');
         } catch (err) {
             try { console.warn('[trakt_v3] player hook err', err); } catch (_) {}
