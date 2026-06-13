@@ -10,12 +10,14 @@
 // watching-сессия у Trakt гаснет БЕЗ отметки watched, т.е. без stop досмотр теряется.
 
 import { trakt } from './trakt.js';
-import { triggerBackgroundSync } from '../sync/index.js';
+import { repo } from './repo.js';
+import { getSnapshot, triggerBackgroundSync } from '../sync/index.js';
 
 const WATCHDOG_INTERVAL_MS = 30000;   // как часто проверяем сессии
 const SESSION_TIMEOUT_MS = 120000;    // тишина дольше — клиент считается мёртвым
 const WATCHED_THRESHOLD = 80;         // порог Trakt для watched
 const TRAKT_POST_MIN_GAP_MS = 1100;   // лимит Trakt: 1 POST/сек
+const RESUME_SAVE_THROTTLE_MS = 60000; // запись резюма на диск не чаще раза в минуту
 
 const _state = { sessions: new Map(), log: null, timer: null, lastTraktPostAt: 0 };
 
@@ -62,6 +64,51 @@ function effProgress(p) {
     return Math.max(0, Math.min(100, Number(p.progress) || 0));
 }
 
+function progressKey(s) {
+    if (s.type === 'movie') return 'movie:' + s.tmdb;
+    if (Number.isInteger(s.season) && Number.isInteger(s.episode)) {
+        const sn = String(s.season).padStart(2, '0');
+        const en = String(s.episode).padStart(2, '0');
+        return 'show:' + s.tmdb + ':S' + sn + 'E' + en;
+    }
+    return null;
+}
+
+// Сохранение резюм-позиции (раньше это делал отдельный /api/progress). Пишем
+// в snapshot.progress_files. >=80% → резюм не нужен, чистим. Запись на диск
+// троттлим (heartbeat частый), но force=true (пауза/стоп/watchdog) пишет сразу.
+async function saveResume(s, force) {
+    try {
+        const snap = getSnapshot();
+        if (!snap || !s) return;
+        const key = progressKey(s);
+        if (!key) return;
+        if (!snap.progress_files) snap.progress_files = {};
+
+        if (s.progress >= WATCHED_THRESHOLD) {
+            if (snap.progress_files[key]) {
+                delete snap.progress_files[key];
+                snap.meta.generated_at = new Date().toISOString();
+                await repo.writeSnapshot(snap);
+            }
+            return;
+        }
+        if (!(Number(s.duration) > 0)) return;
+        if (!force && s.lastResumeSaveAt && (Date.now() - s.lastResumeSaveAt) < RESUME_SAVE_THROTTLE_MS) return;
+        s.lastResumeSaveAt = Date.now();
+        snap.progress_files[key] = {
+            time: Math.max(0, Math.floor(s.time || 0)),
+            duration: Math.max(0, Math.floor(s.duration || 0)),
+            percent: s.progress,
+            updated_at: new Date().toISOString()
+        };
+        snap.meta.generated_at = new Date().toISOString();
+        await repo.writeSnapshot(snap);
+    } catch (err) {
+        _state.log?.warn({ err: String(err.message || err) }, 'saveResume failed');
+    }
+}
+
 export async function handle(p) {
     const event = p.event;
     const key = sessionKey(p.device_id);
@@ -86,6 +133,7 @@ export async function handle(p) {
             s.time = Number(p.time) || s.time;
             s.duration = Number(p.duration) || s.duration;
             s.last_update = Date.now();
+            await saveResume(s, false);   // резюм из heartbeat (троттл на диск)
         }
         return { ok: true };
     }
@@ -96,6 +144,7 @@ export async function handle(p) {
         s.time = Number(p.time) || s.time;
         s.duration = Number(p.duration) || s.duration;
         s.last_update = Date.now();
+        await saveResume(s, true);
         if (s.progress >= WATCHED_THRESHOLD) {   // пауза в конце → сразу фиксируем watched
             _state.sessions.delete(key);
             return traktScrobble('stop', s);
@@ -109,6 +158,9 @@ export async function handle(p) {
             season: p.season ?? null, episode: p.episode ?? null
         };
         sess.progress = effProgress(p);
+        sess.time = Number(p.time) || sess.time || 0;
+        sess.duration = Number(p.duration) || sess.duration || 0;
+        await saveResume(sess, true);
         _state.sessions.delete(key);
         return traktScrobble('stop', sess);
     }
@@ -122,7 +174,7 @@ async function runWatchdog() {
         if (now - s.last_update > SESSION_TIMEOUT_MS) {
             _state.sessions.delete(key);
             _state.log?.info({ device: key, type: s.type, tmdb: s.tmdb, progress: s.progress }, 'scrobble watchdog finalize');
-            try { await traktScrobble('stop', s); } catch (_) {}
+            try { await saveResume(s, true); await traktScrobble('stop', s); } catch (_) {}
         }
     }
 }

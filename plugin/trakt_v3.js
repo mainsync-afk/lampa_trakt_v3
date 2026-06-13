@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.3.2';
+    var VERSION = '0.3.3';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -566,38 +566,6 @@
         return t && (Date.now() - t < 3000);
     }
 
-    // D1d: throttled POST /api/progress per-hash (60 сек).
-    var lastProgressSent = {}; // hash → ms
-    var PROGRESS_THROTTLE_MS = 60000;
-    function sendProgressThrottled(hash, road) {
-        var now = Date.now();
-        if (lastProgressSent[hash] && (now - lastProgressSent[hash]) < PROGRESS_THROTTLE_MS) return;
-        lastProgressSent[hash] = now;
-
-        var time = Math.max(0, Math.floor(Number(road.time) || 0));
-        var duration = Math.max(0, Math.floor(Number(road.duration) || 0));
-        var percent = Math.max(0, Math.min(100, Number(road.percent) || 0));
-        if (duration <= 0) return;
-
-        // Найдём что это — эпизод или фильм.
-        var ep = hashToEpisode[hash];
-        if (ep) {
-            serverPost('/api/progress', {
-                tmdb: ep.tmdb, type: 'show',
-                season: ep.season, episode: ep.episode,
-                time: time, duration: duration, percent: percent
-            }).catch(function () { delete lastProgressSent[hash]; });
-            return;
-        }
-        var mv = hashToMovie[hash];
-        if (mv) {
-            serverPost('/api/progress', {
-                tmdb: mv.tmdb, type: 'movie',
-                time: time, duration: duration, percent: percent
-            }).catch(function () { delete lastProgressSent[hash]; });
-        }
-    }
-
     // hashToMovie: hash → {tmdb} для open карточки фильма.
     var hashToMovie = {};
 
@@ -741,17 +709,17 @@
                 //   duration  > 0 → авто-update от плеера во время просмотра.
                 var isManual = duration === 0;
                 if (!isManual) {
-                    // Просмотр в плеере: отметку watched теперь делает scrobble/stop
-                    // (порог 80% считает Trakt). Запоминаем прогресс текущего
-                    // scrobble-сеанса БЕЗ привязки к hash — играет всегда один
-                    // элемент, а hash из Player.start мог разойтись с hash из
-                    // Timeline-апдейта. Плюс резюм-позиция (<80%).
+                    // Просмотр в плеере: watched делает scrobble/stop (порог 80% —
+                    // на сервере). Здесь только fallback прогресса для scrobble-сеанса
+                    // (основной источник — PlayerVideo/timeupdate; Timeline нужен на
+                    // платформах, где timeupdate молчит). Резюм-позицию теперь
+                    // сохраняет СЕРВЕР из scrobble-heartbeat — отдельный /api/progress
+                    // из плагина больше не шлём.
                     if (currentPlay) {
                         currentPlay.progress = Math.round(percent);
                         currentPlay.time = Number(road.time) || 0;
                         currentPlay.duration = duration;
                     }
-                    if (percent < 80) sendProgressThrottled(hash, road);
                     return;
                 }
                 // Ручной клик в карточке: percent>0 → mark, percent=0 → unmark.
