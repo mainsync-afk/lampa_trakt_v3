@@ -24,7 +24,7 @@ export default async function (app) {
                 // dropped (членство в списке «Брошено») перебивает обычный статус —
                 // значок × на превью везде в Lampa.
                 trakt_status: isDropped(c) ? 'dropped' : (c.trakt_status || null),
-                in_watchlist: !!c.in_watchlist,
+                in_watchlist: isDropped(c) ? false : !!c.in_watchlist,
                 in_watched: !!c.in_watched,
                 in_collection: !!c.in_collection
             };

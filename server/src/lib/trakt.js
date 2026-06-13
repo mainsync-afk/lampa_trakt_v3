@@ -143,10 +143,11 @@ export const trakt = {
     addToList:           (listId, body) => postJson(`/users/me/lists/${listId}/items`, body),
     removeFromList:      (listId, body) => postJson(`/users/me/lists/${listId}/items/remove`, body),
 
-    // hidden/progress_watched — нативный «drop» Trakt (скрытие из up next/progress).
-    hiddenProgress:      () => getJson('/users/hidden/progress_watched?type=show&limit=2000'),
-    addToHidden:         (body) => postJson('/users/hidden/progress_watched', body),
-    removeFromHidden:    (body) => postJson('/users/hidden/progress_watched/remove', body)
+    // hidden/dropped — нативный «Drop» Trakt 2025 (отдельная секция, НЕ legacy
+    // progress_watched). limit высокий: по умолчанию пагинация по 10.
+    hiddenProgress:      () => getJson('/users/hidden/dropped?type=show&limit=2000'),
+    addToHidden:         (body) => postJson('/users/hidden/dropped', body),
+    removeFromHidden:    (body) => postJson('/users/hidden/dropped/remove', body)
 };
 
 export { ensureFreshAuth, refreshToken };

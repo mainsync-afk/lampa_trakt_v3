@@ -20,7 +20,7 @@ import configRoutes from './routes/config.js';
 import { scrobbleSessions } from './lib/scrobbleSessions.js';
 import { loadConfig } from './lib/appConfig.js';
 
-const VERSION = '0.10.0';
+const VERSION = '0.10.1';
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || '0.0.0.0';
 

@@ -163,6 +163,16 @@ export async function toggleListMembership(tmdb, type, listId) {
                 args: { body: payload(type, tmdb) }
             });
         }
+        // Брошенное снимаем с Закладок (watchlist) тоже — по требованию. Односторонне:
+        // undrop watchlist не возвращает.
+        if (dropped && card.in_watchlist) {
+            card.in_watchlist = false;
+            await repo.writeSnapshot(snap);
+            writeQueue.enqueue({
+                kind: 'removeFromWatchlist',
+                args: { body: payload(type, tmdb) }
+            });
+        }
     }
 
     return { state: cardState(card), action: wasIn ? 'removed' : 'added' };

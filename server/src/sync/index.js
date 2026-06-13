@@ -169,6 +169,12 @@ function reconcileDropped(cards, hidden, dropListId) {
             try { writeQueue.enqueue({ kind: 'removeFromHidden', args: { body } }); } catch (_) {}
         }
 
+        // Брошенное снимаем с Закладок (watchlist). Односторонне (undrop не возвращает).
+        if (desired && c.in_watchlist) {
+            c.in_watchlist = false;
+            try { writeQueue.enqueue({ kind: 'removeFromWatchlist', args: { body } }); } catch (_) {}
+        }
+
         // намерение держим, пока Trakt не подтвердит ОБА хранилища
         if (intent !== null && desired === inList && desired === inHidden) {
             clearDropIntent(key);
