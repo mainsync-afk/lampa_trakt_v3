@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.2.3';
+    var VERSION = '0.2.4';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -878,6 +878,8 @@
 
     // PlayerVideo (через Lampa.Listener): актуальный прогресс плеера + пауза.
     function onPlayerVideoEvent(e) {
+        // DIAG v0.2.4: логируем ВСЕ типы PlayerVideo, чтобы найти событие паузы.
+        try { console.log('[trakt_v3] PV', e && e.type, 'keys=' + (e ? Object.keys(e).join(',') : ''), 'cp=' + !!currentPlay); } catch (_) {}
         if (!e || !currentPlay) return;
         if (e.type === 'timeupdate') {
             var dur = Number(e.duration) || 0;
@@ -903,15 +905,17 @@
         try {
             // Плеер на закрытие шлёт 'destroy' (Player: create/start/ready/destroy).
             // 'stop'/'ended' слушаем тоже — guard не даст отправить stop дважды.
-            Lampa.Player.listener.follow('start', onScrobbleStart);
-            Lampa.Player.listener.follow('destroy', finalizeStop);
-            Lampa.Player.listener.follow('stop', finalizeStop);
-            Lampa.Player.listener.follow('ended', onScrobbleEnded);
-            Lampa.Player.listener.follow('visibility', onScrobbleVisibility);
+            // DIAG v0.2.4: оборачиваем каждый Player-ивент логом, чтобы понять,
+            // какой именно присылает преждевременный stop.
+            Lampa.Player.listener.follow('start', function (d) { try { console.log('[trakt_v3] PL start'); } catch (_) {} onScrobbleStart(d); });
+            Lampa.Player.listener.follow('destroy', function () { try { console.log('[trakt_v3] PL destroy'); } catch (_) {} finalizeStop(); });
+            Lampa.Player.listener.follow('stop', function () { try { console.log('[trakt_v3] PL stop'); } catch (_) {} finalizeStop(); });
+            Lampa.Player.listener.follow('ended', function () { try { console.log('[trakt_v3] PL ended'); } catch (_) {} onScrobbleEnded(); });
+            Lampa.Player.listener.follow('visibility', function (e) { try { console.log('[trakt_v3] PL visibility hidden=' + (e && e.hidden)); } catch (_) {} onScrobbleVisibility(e); });
             if (Lampa.Listener && typeof Lampa.Listener.follow === 'function') {
                 Lampa.Listener.follow('PlayerVideo', onPlayerVideoEvent);
             }
-            console.log('[trakt_v3] player scrobble hook installed');
+            console.log('[trakt_v3] player scrobble hook installed (DIAG v0.2.4)');
         } catch (err) {
             try { console.warn('[trakt_v3] player hook err', err); } catch (_) {}
         }
