@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.2.0';
+    var VERSION = '0.2.1';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -742,10 +742,14 @@
                 var isManual = duration === 0;
                 if (!isManual) {
                     // Просмотр в плеере: отметку watched теперь делает scrobble/stop
-                    // (порог 80% считает Trakt). Здесь только запоминаем прогресс
-                    // текущего scrobble-сеанса и пишем резюм-позицию (<80%).
-                    if (currentPlay && currentPlay.hash === hash) {
+                    // (порог 80% считает Trakt). Запоминаем прогресс текущего
+                    // scrobble-сеанса БЕЗ привязки к hash — играет всегда один
+                    // элемент, а hash из Player.start мог разойтись с hash из
+                    // Timeline-апдейта. Плюс резюм-позиция (<80%).
+                    if (currentPlay) {
                         currentPlay.progress = Math.round(percent);
+                        currentPlay.time = Number(road.time) || 0;
+                        currentPlay.duration = duration;
                     }
                     if (percent < 80) sendProgressThrottled(hash, road);
                     return;
