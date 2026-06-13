@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.3.1';
+    var VERSION = '0.3.2';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -849,7 +849,7 @@
         try {
             console.log('[trakt_v3] scrobble ' + event + ' ' + currentPlay.type + ':' + currentPlay.tmdb
                 + (currentPlay.type === 'show' ? ' S' + currentPlay.season + 'E' + currentPlay.episode : '')
-                + ' @' + (currentPlay.progress || 0) + '%');
+                + ' @' + (currentPlay.progress || 0) + '% (' + (currentPlay.time || 0) + '/' + (currentPlay.duration || 0) + 's)');
         } catch (_) {}
     }
 
