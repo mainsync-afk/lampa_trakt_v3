@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.2.1';
+    var VERSION = '0.2.2';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -875,7 +875,11 @@
         if (!window.Lampa || !Lampa.Player || !Lampa.Player.listener) return;
         window.__trakt_v3_player_hook_installed = true;
         try {
+            // В нашем Lampa плеер на закрытие шлёт 'destroy' (Player: create/start/
+            // ready/destroy). 'stop'/'ended' слушаем тоже на случай, если фурк их
+            // эмитит — currentPlay-guard не даст отправить stop дважды.
             Lampa.Player.listener.follow('start', onScrobbleStart);
+            Lampa.Player.listener.follow('destroy', onScrobbleStop);
             Lampa.Player.listener.follow('stop', onScrobbleStop);
             Lampa.Player.listener.follow('ended', onScrobbleEnded);
             Lampa.Player.listener.follow('visibility', onScrobbleVisibility);
