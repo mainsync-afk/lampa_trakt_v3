@@ -51,6 +51,17 @@ function sessionKey(deviceId) {
     return String(deviceId || 'unknown');
 }
 
+// Процент считаем из time/duration (сырые секунды от клиента). Если их нет —
+// fallback на присланный progress. Так логика порога 80% живёт здесь, на сервере.
+function effProgress(p) {
+    const t = Number(p.time);
+    const d = Number(p.duration);
+    if (Number.isFinite(t) && Number.isFinite(d) && d > 0) {
+        return Math.max(0, Math.min(100, Math.round((t / d) * 100)));
+    }
+    return Math.max(0, Math.min(100, Number(p.progress) || 0));
+}
+
 export async function handle(p) {
     const event = p.event;
     const key = sessionKey(p.device_id);
@@ -59,7 +70,9 @@ export async function handle(p) {
         const s = {
             device_id: p.device_id, type: p.type, tmdb: p.tmdb,
             season: p.season ?? null, episode: p.episode ?? null,
-            progress: Number(p.progress) || 0, last_update: Date.now()
+            progress: effProgress(p),
+            time: Number(p.time) || 0, duration: Number(p.duration) || 0,
+            last_update: Date.now()
         };
         _state.sessions.set(key, s);
         return traktScrobble('start', s);
@@ -68,13 +81,20 @@ export async function handle(p) {
     const s = _state.sessions.get(key);
 
     if (event === 'progress') {
-        if (s) { s.progress = Number(p.progress) || s.progress; s.last_update = Date.now(); }
+        if (s) {
+            s.progress = effProgress(p);
+            s.time = Number(p.time) || s.time;
+            s.duration = Number(p.duration) || s.duration;
+            s.last_update = Date.now();
+        }
         return { ok: true };
     }
 
     if (event === 'pause') {
         if (!s) return { ok: true };
-        s.progress = Number(p.progress) || s.progress;
+        s.progress = effProgress(p);
+        s.time = Number(p.time) || s.time;
+        s.duration = Number(p.duration) || s.duration;
         s.last_update = Date.now();
         if (s.progress >= WATCHED_THRESHOLD) {   // пауза в конце → сразу фиксируем watched
             _state.sessions.delete(key);
@@ -86,9 +106,9 @@ export async function handle(p) {
     if (event === 'stop') {
         const sess = s || {
             device_id: p.device_id, type: p.type, tmdb: p.tmdb,
-            season: p.season ?? null, episode: p.episode ?? null, progress: 0
+            season: p.season ?? null, episode: p.episode ?? null
         };
-        if (p.progress != null) sess.progress = Number(p.progress);
+        sess.progress = effProgress(p);
         _state.sessions.delete(key);
         return traktScrobble('stop', sess);
     }

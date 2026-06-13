@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.3.0';
+    var VERSION = '0.3.1';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -837,7 +837,9 @@
             device_id: getDeviceId(),
             type: currentPlay.type,
             tmdb: currentPlay.tmdb,
-            progress: currentPlay.progress || 0
+            progress: currentPlay.progress || 0,
+            time: currentPlay.time || 0,
+            duration: currentPlay.duration || 0
         };
         if (currentPlay.type === 'show') {
             body.season = currentPlay.season;
@@ -906,16 +908,18 @@
     // (Lampa.Listener('PlayerVideo') и DOM <video> в этой сборке молчат). Прогресс
     // ведёт Timeline-хук (currentPlay.progress), здесь только pause/play.
     function onPlayerPause() {
-        if (!currentPlay) return;
-        // Просто сообщаем серверу о паузе с текущим прогрессом. Решение
-        // «>=80% → watched, <80% → pause» принимает сервер.
+        // Lampa шлёт 'pause' дважды подряд — дедупим по флагу paused.
+        if (!currentPlay || currentPlay.paused) return;
+        // Сообщаем серверу о паузе; решение «>=80% → watched, <80% → pause» — на сервере.
         currentPlay.paused = true;
         scrobbleSend('pause');
     }
     function onPlayerPlay() {
-        // Резюм после паузы — снова start, чтобы Trakt вышел из paused. На первом
-        // запуске paused не выставлен (start уже ушёл из Player.start) — не дублируем.
-        if (currentPlay && currentPlay.paused) { currentPlay.paused = false; scrobbleSend('start'); }
+        // Резюм после паузы — снова start. Дедуп по paused: второй 'play' и
+        // первый play на старте (paused не выставлен) игнорируются.
+        if (!currentPlay || !currentPlay.paused) return;
+        currentPlay.paused = false;
+        scrobbleSend('start');
     }
     // Живой прогресс из PlayerVideo/timeupdate (~1/сек) — точнее, чем Timeline-хук.
     // Нужен для корректной проверки порога 80% на паузе и честного % в stop.
@@ -925,7 +929,11 @@
         var dur = Number(e.duration) || 0;
         var pos = Number(e.current);
         if (!Number.isFinite(pos)) pos = Number(e.time != null ? e.time : e.position) || 0;
-        if (dur > 0 && pos >= 0) currentPlay.progress = Math.round(Math.min(100, pos / dur * 100));
+        if (dur > 0 && pos >= 0) {
+            currentPlay.progress = Math.round(Math.min(100, pos / dur * 100));
+            currentPlay.time = Math.floor(pos);
+            currentPlay.duration = Math.floor(dur);
+        }
     }
 
     function installPlayerScrobbleHook() {

@@ -35,7 +35,9 @@ export default async function (app) {
             event,
             device_id: b.device_id,
             type, tmdb, season, episode,
-            progress: b.progress
+            progress: b.progress,
+            time: b.time,
+            duration: b.duration
         });
     });
 }
