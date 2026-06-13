@@ -59,6 +59,17 @@ export default async function (app) {
         if (!card.progress.episodes_aired) card.progress.episodes_aired = {};
         const epKey = 'S' + String(season).padStart(2, '0') + 'E' + String(episode).padStart(2, '0');
         const prevValue = card.progress.episodes_aired[epKey];
+
+        // Идемпотентность (как у movie.js): если эпизод уже в нужном состоянии —
+        // noop, в Trakt не пишем. Глушит эхо read-back (percent:95 на уже
+        // просмотренные эпизоды), проскочившее мимо 3-сек guard плагина, и любые
+        // повторные отметки того же состояния. prevValue: timestamp=watched, null=aired
+        // не watched, undefined=неизвестно.
+        const currentlyWatched = prevValue != null;
+        if (currentlyWatched === watched) {
+            return { ok: true, action: 'noop', episode: epKey };
+        }
+
         if (watched) {
             card.progress.episodes_aired[epKey] = new Date().toISOString();
             if (snap.progress_files) {

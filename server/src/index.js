@@ -15,8 +15,9 @@ import episodeRoutes from './routes/episode.js';
 import movieRoutes from './routes/movie.js';
 import progressRoutes from './routes/progress.js';
 import statesRoutes from './routes/states.js';
+import scrobbleRoutes from './routes/scrobble.js';
 
-const VERSION = '0.5.0';
+const VERSION = '0.6.0';
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || '0.0.0.0';
 
@@ -77,6 +78,7 @@ await app.register(episodeRoutes);
 await app.register(movieRoutes);
 await app.register(progressRoutes);
 await app.register(statesRoutes);
+await app.register(scrobbleRoutes);
 
 try {
     await app.listen({ port: PORT, host: HOST });

@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.1.66';
+    var VERSION = '0.2.0';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -740,20 +740,18 @@
                 //   duration === 0 → ручной toggle (клик в карточке).
                 //   duration  > 0 → авто-update от плеера во время просмотра.
                 var isManual = duration === 0;
-                var watched;
-                if (isManual) {
-                    // ручной клик: percent=95 → mark, percent=0 → unmark
-                    watched = percent > 0;
-                } else {
-                    // play: при <80% — D1d cross-device progress (throttled POST).
-                    //       при >=80% — D1c mark watched (Trakt-стандарт).
-                    if (percent < 80) {
-                        // D1d: cross-device прогресс через наш сервер.
-                        sendProgressThrottled(hash, road);
-                        return;
+                if (!isManual) {
+                    // Просмотр в плеере: отметку watched теперь делает scrobble/stop
+                    // (порог 80% считает Trakt). Здесь только запоминаем прогресс
+                    // текущего scrobble-сеанса и пишем резюм-позицию (<80%).
+                    if (currentPlay && currentPlay.hash === hash) {
+                        currentPlay.progress = Math.round(percent);
                     }
-                    watched = true;
+                    if (percent < 80) sendProgressThrottled(hash, road);
+                    return;
                 }
+                // Ручной клик в карточке: percent>0 → mark, percent=0 → unmark.
+                var watched = percent > 0;
 
                 // Эпизод?
                 var epInfo = hashToEpisode[hash];
@@ -800,6 +798,87 @@
             }
         });
         try { console.log('[trakt_v3] Timeline.update hook installed'); } catch (_) {}
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    // Scrobble: live-просмотр через Trakt /scrobble/* (плагин → наш сервер).
+    //   Player start → scrobble/start, pause/hidden → pause, stop/ended → stop.
+    // Порог 80% (watched) и дедуп считает САМ Trakt на stop. Идентификация —
+    // через hashToEpisode/hashToMovie (заполнены при открытии карточки). Прогресс
+    // берём из Timeline-апдейтов (currentPlay.progress). Шлём fire-and-forget —
+    // плеер не блокируем.
+    // ────────────────────────────────────────────────────────────────────
+    var currentPlay = null; // { type, tmdb, season?, episode?, hash, progress }
+
+    function scrobbleSend(action) {
+        if (!currentPlay) return;
+        var body = {
+            action: action,
+            progress: currentPlay.progress || 0,
+            tmdb: currentPlay.tmdb,
+            type: currentPlay.type
+        };
+        if (currentPlay.type === 'show') {
+            body.season = currentPlay.season;
+            body.episode = currentPlay.episode;
+        }
+        serverPost('/api/scrobble/' + action, body).catch(function () {});
+        try {
+            console.log('[trakt_v3] scrobble ' + action + ' ' + currentPlay.type + ':' + currentPlay.tmdb
+                + (currentPlay.type === 'show' ? ' S' + currentPlay.season + 'E' + currentPlay.episode : '')
+                + ' @' + (currentPlay.progress || 0) + '%');
+        } catch (_) {}
+    }
+
+    function resolvePlayIdentity(data) {
+        var hash = data && data.timeline && data.timeline.hash;
+        if (hash && hashToEpisode[hash]) {
+            var ep = hashToEpisode[hash];
+            return { type: 'show', tmdb: ep.tmdb, season: ep.season, episode: ep.episode, hash: hash, progress: 0 };
+        }
+        if (hash && hashToMovie[hash]) {
+            return { type: 'movie', tmdb: hashToMovie[hash].tmdb, hash: hash, progress: 0 };
+        }
+        // fallback: фильм по card. Для шоу без season/episode scrobble невозможен.
+        var card = data && data.card;
+        if (card && card.id) {
+            var isTv = !!(card.seasons || card.first_air_date || card.original_name
+                          || card.number_of_seasons || card.method === 'tv' || card.card_type === 'tv');
+            if (!isTv) return { type: 'movie', tmdb: card.id, hash: hash, progress: 0 };
+        }
+        return null;
+    }
+
+    function onScrobbleStart(data) {
+        try {
+            currentPlay = resolvePlayIdentity(data);
+            if (currentPlay) scrobbleSend('start');
+            else { try { console.warn('[trakt_v3] scrobble: identity unresolved', data && data.timeline); } catch (_) {} }
+        } catch (e) { try { console.warn('[trakt_v3] scrobble start err', e); } catch (_) {} }
+    }
+    function onScrobbleStop() {
+        if (currentPlay) { scrobbleSend('stop'); currentPlay = null; }
+    }
+    function onScrobbleEnded() {
+        if (currentPlay) { currentPlay.progress = 100; scrobbleSend('stop'); currentPlay = null; }
+    }
+    function onScrobbleVisibility(e) {
+        if (e && e.hidden && currentPlay) scrobbleSend('pause');
+    }
+
+    function installPlayerScrobbleHook() {
+        if (window.__trakt_v3_player_hook_installed) return;
+        if (!window.Lampa || !Lampa.Player || !Lampa.Player.listener) return;
+        window.__trakt_v3_player_hook_installed = true;
+        try {
+            Lampa.Player.listener.follow('start', onScrobbleStart);
+            Lampa.Player.listener.follow('stop', onScrobbleStop);
+            Lampa.Player.listener.follow('ended', onScrobbleEnded);
+            Lampa.Player.listener.follow('visibility', onScrobbleVisibility);
+            console.log('[trakt_v3] player scrobble hook installed');
+        } catch (err) {
+            try { console.warn('[trakt_v3] player hook err', err); } catch (_) {}
+        }
     }
 
     // ────────────────────────────────────────────────────────────────────
@@ -1885,6 +1964,7 @@
         installHoverLongHook();
         installFullCardHook();
         installTimelineUpdateHook();
+        installPlayerScrobbleHook();
         installCardBuildHook();
         installFolderEnterHook();
         // Загружаем легковесную карту состояний для overlay-значков B1.
