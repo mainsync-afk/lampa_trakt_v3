@@ -10,6 +10,7 @@ const CONFIG_DIR = process.env.CONFIG_DIR || '/app/config';
 const SNAPSHOT_PATH = path.join(DATA_DIR, 'snapshot.json');
 const TMDB_CACHE_PATH = path.join(DATA_DIR, 'tmdb_cache.json');
 const AUTH_PATH = path.join(CONFIG_DIR, 'auth.json');
+const APP_CONFIG_PATH = path.join(CONFIG_DIR, 'app_config.json');
 
 async function readJson(filePath, fallback = null) {
     try {
@@ -39,9 +40,13 @@ export const repo = {
     readAuth: () => readJson(AUTH_PATH, null),
     writeAuth: (data) => writeJsonAtomic(AUTH_PATH, data),
 
+    readAppConfig: () => readJson(APP_CONFIG_PATH, {}),
+    writeAppConfig: (data) => writeJsonAtomic(APP_CONFIG_PATH, data),
+
     paths: {
         snapshot: SNAPSHOT_PATH,
         tmdbCache: TMDB_CACHE_PATH,
-        auth: AUTH_PATH
+        auth: AUTH_PATH,
+        appConfig: APP_CONFIG_PATH
     }
 };

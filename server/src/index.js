@@ -16,9 +16,11 @@ import movieRoutes from './routes/movie.js';
 import progressRoutes from './routes/progress.js';
 import statesRoutes from './routes/states.js';
 import scrobbleRoutes from './routes/scrobble.js';
+import configRoutes from './routes/config.js';
 import { scrobbleSessions } from './lib/scrobbleSessions.js';
+import { loadConfig } from './lib/appConfig.js';
 
-const VERSION = '0.8.0';
+const VERSION = '0.9.0';
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || '0.0.0.0';
 
@@ -59,6 +61,7 @@ app.addHook('onRequest', async (req, reply) => {
     return reply.code(401).send({ ok: false, error: 'access_denied' });
 });
 
+await loadConfig();
 await syncEngine.init(app.log);
 
 // writeQueue: на каждый успешный Trakt-write дёргаем background-sync,
@@ -83,6 +86,7 @@ await app.register(movieRoutes);
 await app.register(progressRoutes);
 await app.register(statesRoutes);
 await app.register(scrobbleRoutes);
+await app.register(configRoutes);
 
 try {
     await app.listen({ port: PORT, host: HOST });

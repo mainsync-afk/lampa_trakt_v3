@@ -9,6 +9,7 @@
 
 import { getSnapshot } from '../sync/index.js';
 import { tmdb } from '../lib/tmdb.js';
+import { getDroppedListId } from '../lib/appConfig.js';
 
 function tsOf(s) {
     if (!s) return 0;
@@ -48,7 +49,7 @@ function sortByAsc(items, getter) {
     });
 }
 
-function toLampaCard(c) {
+function toLampaCard(c, dropped) {
     const method = c.type === 'movie' ? 'movie' : 'tv';
     const poster = tmdb.posterUrl(c.poster_path, 'w300');
     const card = {
@@ -75,7 +76,7 @@ function toLampaCard(c) {
             in_watched: !!c.in_watched,
             in_collection: !!c.in_collection,
             in_lists: c.in_lists || [],
-            status: c.trakt_status || null   // 'continue' | 'returning' | 'completed' | null
+            status: dropped ? 'dropped' : (c.trakt_status || null)   // dropped | continue | returning | completed | null
         }
     };
     if (c.type === 'show') {
@@ -110,20 +111,38 @@ export default async function (app) {
 
         const cards = Object.values(snap.cards || {});
 
+        // «Брошено» = членство в выбранном кастомном списке (dropped_list_id).
+        // Такие карточки выпадают из Смотрю/Продолжение/Закладок/Просмотрено и
+        // собираются в отдельный ряд «Брошено».
+        const dropId = getDroppedListId();
+        const isDropped = (c) => dropId != null && Array.isArray(c.in_lists) && c.in_lists.includes(dropId);
+
         const folders = FOLDERS.map(f => {
-            const filtered = cards.filter(f.filter);
+            const filtered = cards.filter(f.filter).filter(c => !isDropped(c));
             const sorted = (f.dir === 'asc')
                 ? sortByAsc(filtered, f.sortBy)
                 : sortByDesc(filtered, f.sortBy);
-            const items = sorted.map(toLampaCard);
+            const items = sorted.map(c => toLampaCard(c, false));
             return { id: f.id, title: f.title, count: items.length, items };
         });
+
+        // Ряд «Брошено» — после «Просмотрено», только если список настроен.
+        if (dropId != null) {
+            const droppedCards = cards.filter(isDropped);
+            const sorted = sortByDesc(droppedCards, c => tsOf((c.list_listed_at || {})[dropId]));
+            folders.push({
+                id: 'dropped',
+                title: 'Брошено',
+                count: sorted.length,
+                items: sorted.map(c => toLampaCard(c, true))
+            });
+        }
 
         const lists = snap.lists || [];
         const custom = lists.map(l => {
             const filtered = cards.filter(c => (c.in_lists || []).includes(l.id));
             const sorted = sortByDesc(filtered, c => tsOf((c.list_listed_at || {})[l.id]));
-            const items = sorted.map(toLampaCard);
+            const items = sorted.map(c => toLampaCard(c, isDropped(c)));
             return {
                 id: l.id,
                 slug: l.slug,

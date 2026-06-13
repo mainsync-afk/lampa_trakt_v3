@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.3.3';
+    var VERSION = '0.4.0';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -1898,6 +1898,44 @@
     // ────────────────────────────────────────────────────────────────────
     // Settings
     // ────────────────────────────────────────────────────────────────────
+    // Выбор кастомного Trakt-списка, который считается «Брошено» (P1). Значение
+    // хранит СЕРВЕР (он делает классификацию), плагин только показывает выбор.
+    function openDroppedListSelector() {
+        var prev = null;
+        try { prev = Lampa.Controller.enabled() ? Lampa.Controller.enabled().name : null; } catch (_) {}
+
+        function present(lists, currentId) {
+            var items = [{ title: (currentId ? '' : '✓ ') + '— не выбрано —', list_id: 0 }];
+            (lists || []).forEach(function (l) {
+                items.push({ title: (l.id === currentId ? '✓ ' : '') + l.title, list_id: l.id });
+            });
+            Lampa.Select.show({
+                title: 'Список «Брошено»',
+                items: items,
+                onBack: function () { try { if (prev) Lampa.Controller.toggle(prev); } catch (_) {} },
+                onSelect: function (item) {
+                    try { if (prev) Lampa.Controller.toggle(prev); } catch (_) {}
+                    serverPost('/api/config', { dropped_list_id: item.list_id || null }).then(function (resp) {
+                        if (resp && resp.ok) {
+                            notify('Список «Брошено»: ' + (item.list_id ? item.title.replace('✓ ', '') : 'не выбран'));
+                            fetchCardStates();
+                            refreshScreenIfActive();
+                        } else { notify('Не удалось сохранить'); }
+                    }).catch(function () { notify('Сервер недоступен'); });
+                }
+            });
+        }
+
+        serverGet('/api/config').then(function (cfg) {
+            var currentId = (cfg && cfg.dropped_list_id) ? cfg.dropped_list_id : 0;
+            if (CUSTOM_LISTS && CUSTOM_LISTS.length) { present(CUSTOM_LISTS, currentId); return; }
+            serverGet('/api/folders').then(function (folders) {
+                ingestFoldersResponse(folders);
+                present(CUSTOM_LISTS, currentId);
+            }).catch(function () { present(CUSTOM_LISTS, currentId); });
+        }).catch(function () { present(CUSTOM_LISTS || [], 0); });
+    }
+
     function registerSettings() {
         if (!window.Lampa || !Lampa.SettingsApi) return;
         try {
@@ -1966,6 +2004,17 @@
                     setAccessCode(newValue);
                     reloadAfterCode();
                 }
+            });
+
+            // Кнопка: выбор списка «Брошено»
+            Lampa.SettingsApi.addParam({
+                component: SETTINGS_COMPONENT,
+                param: { name: 'trakt_v3_dropped_list_btn', type: 'button' },
+                field: {
+                    name: 'Список «Брошено»',
+                    description: 'Какой Trakt-список считать брошенными. Эти карточки уходят из остальных рядов в отдельный ряд «Брошено» и получают значок ×.'
+                },
+                onChange: function () { openDroppedListSelector(); }
             });
 
             // Кнопка: Принудительная синхронизация
