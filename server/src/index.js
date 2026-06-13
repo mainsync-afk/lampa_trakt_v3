@@ -36,6 +36,27 @@ await app.register(compress, {
     threshold: 1024
 });
 
+// Access-code gate. Если ACCESS_CODE задан в .env — требуем заголовок
+// X-Trakt-Code на всех /api/* кроме /api/health. Неверный/отсутствующий код →
+// 401 с задержкой ~1с (анти-брутфорс для коротких числовых кодов). Пустой
+// ACCESS_CODE → гейт выключен (для безопасного раскатывания: сначала деплой,
+// потом задать код в .env + restart).
+const ACCESS_CODE = String(process.env.ACCESS_CODE || '').trim();
+if (!ACCESS_CODE) {
+    app.log.warn('ACCESS_CODE not set — API is open (no access-code gate)');
+}
+app.addHook('onRequest', async (req, reply) => {
+    if (!ACCESS_CODE) return;
+    if (req.method === 'OPTIONS') return;             // CORS preflight
+    const path = req.url.split('?')[0];
+    if (path === '/api/health') return;               // health открыт для проверки доступности
+    const code = String(req.headers['x-trakt-code'] || '').trim();
+    if (code === ACCESS_CODE) return;
+    await new Promise(r => setTimeout(r, 1000));       // анти-брутфорс
+    reply.header('Access-Control-Allow-Origin', req.headers.origin || '*');
+    return reply.code(401).send({ ok: false, error: 'access_denied' });
+});
+
 await syncEngine.init(app.log);
 
 // writeQueue: на каждый успешный Trakt-write дёргаем background-sync,

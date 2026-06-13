@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.1.65';
+    var VERSION = '0.1.66';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -34,6 +34,9 @@
     var DEFAULT_SERVER_URL = 'https://trakt.fastcdn.pics';
     var STORAGE_SERVER_URL = 'trakt_v3_server_url';
     var STORAGE_FOLDERS_CACHE = 'trakt_v3_folders_cache';
+    // Общий семейный код доступа. Хранится локально, шлётся заголовком
+    // X-Trakt-Code. Без него сервер (если ACCESS_CODE задан) отвечает 401.
+    var STORAGE_ACCESS_CODE = 'trakt_v3_access_code';
 
     // 4 фиксированных пункта sidebar.
     // isToggle=true → tap делает POST к серверу.
@@ -71,6 +74,15 @@
         try { Lampa.Storage.set(STORAGE_FOLDERS_CACHE, JSON.stringify(folders || {})); } catch (_) {}
     }
 
+    function getAccessCode() {
+        try { return String(Lampa.Storage.get(STORAGE_ACCESS_CODE, '') || '').trim(); }
+        catch (_) { return ''; }
+    }
+
+    function setAccessCode(code) {
+        try { Lampa.Storage.set(STORAGE_ACCESS_CODE, String(code || '').trim()); } catch (_) {}
+    }
+
     // ────────────────────────────────────────────────────────────────────
     // Lampa-compatible Java-style hash (Utils.hash из lampa-source)
     // Используется для вычисления hash эпизода/фильма для Lampa.Timeline.
@@ -106,9 +118,15 @@
             catch (e) { reject({ status: 0, code: 'open_failed', error: e }); return; }
             if (body != null) xhr.setRequestHeader('Content-Type', 'application/json');
             xhr.setRequestHeader('Accept', 'application/json');
+            var _code = getAccessCode();
+            if (_code) { try { xhr.setRequestHeader('X-Trakt-Code', _code); } catch (_) {} }
             xhr.timeout = 15000;
             xhr.onload = function () {
-                if (xhr.status >= 200 && xhr.status < 300) {
+                if (xhr.status === 401) {
+                    // Сервер требует код доступа (или код неверный) — просим ввести.
+                    try { onAccessDenied(); } catch (_) {}
+                    reject({ status: 401, code: 'access_denied' });
+                } else if (xhr.status >= 200 && xhr.status < 300) {
                     try { resolve(JSON.parse(xhr.responseText)); }
                     catch (e) { reject({ status: xhr.status, code: 'invalid_json' }); }
                 } else {
@@ -124,6 +142,54 @@
 
     function serverGet(path)        { return httpJson('GET',  path, null); }
     function serverPost(path, body) { return httpJson('POST', path, body || {}); }
+
+    // ────────────────────────────────────────────────────────────────────
+    // Код доступа: промпт при первом старте (нет кода) и повторный при 401
+    // (код неверный). Один общий семейный код. Lampa.Input.edit — проверенный
+    // на Tizen ввод текста (free-keyboard).
+    // ────────────────────────────────────────────────────────────────────
+    var _accessPromptOpen = false;
+
+    function onAccessDenied() {
+        if (_accessPromptOpen) return;
+        // Если код уже сохранён — значит он неверный (retry), иначе первый ввод.
+        promptAccessCode(!!getAccessCode());
+    }
+
+    function reloadAfterCode() {
+        try { fetchCardStates(); } catch (_) {}
+        serverGet('/api/folders').then(function (folders) {
+            writeCachedFolders(folders);
+            ingestFoldersResponse(folders);
+            registerCustomListsInSidebar();
+            notify('Код доступа принят');
+            refreshScreenIfActive();
+        }).catch(function () {
+            // Опять 401 → onAccessDenied поднимет промпт заново.
+        });
+    }
+
+    function promptAccessCode(isRetry) {
+        if (_accessPromptOpen) return;
+        if (!window.Lampa || !Lampa.Input || typeof Lampa.Input.edit !== 'function') return;
+        _accessPromptOpen = true;
+        var prevController = null;
+        try { prevController = Lampa.Controller.enabled() ? Lampa.Controller.enabled().name : null; } catch (_) {}
+        Lampa.Input.edit({
+            title: isRetry ? 'Неверный код доступа, введите ещё раз' : 'Код доступа Trakt',
+            value: getAccessCode(),
+            free: true,
+            nosave: true,
+            nomic: true
+        }, function (value) {
+            _accessPromptOpen = false;
+            try { if (prevController) Lampa.Controller.toggle(prevController); } catch (_) {}
+            var code = String(value || '').trim();
+            if (!code) { notify('Код доступа не введён'); return; }
+            setAccessCode(code);
+            reloadAfterCode();
+        });
+    }
 
     // ────────────────────────────────────────────────────────────────────
     // Локализация
@@ -1751,6 +1817,27 @@
                         setServerUrl(prev);
                         notify(Lampa.Lang.translate('trakt_v3_url_fail'));
                     });
+                }
+            });
+
+            // Параметр: код доступа. Тот же, что вводится в промпте при первом
+            // старте — здесь его можно посмотреть/сменить.
+            Lampa.SettingsApi.addParam({
+                component: SETTINGS_COMPONENT,
+                param: {
+                    name: STORAGE_ACCESS_CODE,
+                    type: 'input',
+                    values: {},
+                    'default': '',
+                    placeholder: '8 цифр'
+                },
+                field: {
+                    name: 'Код доступа',
+                    description: 'Семейный код. Без него сервер не отдаёт данные.'
+                },
+                onChange: function (newValue) {
+                    setAccessCode(newValue);
+                    reloadAfterCode();
                 }
             });
 
