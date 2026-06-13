@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.2.5';
+    var VERSION = '0.2.6';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -876,42 +876,21 @@
         if (e && e.hidden) finalizeStop();
     }
 
-    // PlayerVideo (через Lampa.Listener): актуальный прогресс плеера + пауза.
-    function onPlayerVideoEvent(e) {
-        // DIAG v0.2.4: логируем ВСЕ типы PlayerVideo, чтобы найти событие паузы.
-        try { console.log('[trakt_v3] PV', e && e.type, 'keys=' + (e ? Object.keys(e).join(',') : ''), 'cp=' + !!currentPlay); } catch (_) {}
-        if (!e || !currentPlay) return;
-        if (e.type === 'timeupdate') {
-            var dur = Number(e.duration) || 0;
-            var pos = Number(e.position) || 0;
-            if (dur > 0) {
-                currentPlay.progress = Math.round(pos / dur * 100);
-                currentPlay.time = Math.floor(pos);
-                currentPlay.duration = Math.floor(dur);
-            }
-        } else if (e.type === 'pause') {
-            // Пауза на >=80% → сразу фиксируем watched через stop: переживёт
-            // убийство приложения («поставил на паузу и закрыл Lampa»).
-            // <80% → обычная pause-точка возобновления.
-            if ((currentPlay.progress || 0) >= 80) finalizeStop();
-            else scrobbleSend('pause');
-        }
+    // Пауза/резюм через Lampa.PlayerVideo.listener — рабочий канал в нашем Lampa
+    // (Lampa.Listener('PlayerVideo') и DOM <video> в этой сборке молчат). Прогресс
+    // ведёт Timeline-хук (currentPlay.progress), здесь только pause/play.
+    function onPlayerPause() {
+        if (!currentPlay) return;
+        // >=80% → сразу фиксируем watched через stop: переживёт убийство приложения
+        //         («поставил на паузу и закрыл Lampa»).
+        // <80%  → обычная pause-точка возобновления.
+        if ((currentPlay.progress || 0) >= 80) finalizeStop();
+        else { scrobbleSend('pause'); currentPlay.paused = true; }
     }
-
-    // DIAG v0.2.5: прямые слушатели на DOM <video> — в браузере pause/play железны.
-    // На Tizen плеер нативный (avplay), <video> может не быть — тогда тут тишина.
-    function probeVideoElement() {
-        try {
-            var v = document.querySelector('video');
-            if (!v || v.__trakt_probe) return;
-            v.__trakt_probe = true;
-            ['play', 'pause', 'playing', 'waiting', 'seeking', 'seeked', 'ended'].forEach(function (t) {
-                v.addEventListener(t, function () {
-                    try { console.log('[trakt_v3] VID ' + t + ' paused=' + v.paused + ' cur=' + Math.round(v.currentTime) + '/' + Math.round(v.duration || 0)); } catch (_) {}
-                }, false);
-            });
-            console.log('[trakt_v3] VID probe attached');
-        } catch (_) {}
+    function onPlayerPlay() {
+        // Резюм после паузы — снова start, чтобы Trakt вышел из paused. На первом
+        // запуске paused не выставлен (start уже ушёл из Player.start) — не дублируем.
+        if (currentPlay && currentPlay.paused) { currentPlay.paused = false; scrobbleSend('start'); }
     }
 
     function installPlayerScrobbleHook() {
@@ -919,32 +898,20 @@
         if (!window.Lampa || !Lampa.Player || !Lampa.Player.listener) return;
         window.__trakt_v3_player_hook_installed = true;
         try {
-            Lampa.Player.listener.follow('start', function (d) { try { console.log('[trakt_v3] PL start'); } catch (_) {} probeVideoElement(); onScrobbleStart(d); });
-            Lampa.Player.listener.follow('destroy', function () { try { console.log('[trakt_v3] PL destroy'); } catch (_) {} finalizeStop(); });
-            Lampa.Player.listener.follow('stop', function () { try { console.log('[trakt_v3] PL stop'); } catch (_) {} finalizeStop(); });
-            Lampa.Player.listener.follow('ended', function () { try { console.log('[trakt_v3] PL ended'); } catch (_) {} onScrobbleEnded(); });
-            Lampa.Player.listener.follow('visibility', function (e) { try { console.log('[trakt_v3] PL visibility hidden=' + (e && e.hidden)); } catch (_) {} onScrobbleVisibility(e); });
-
-            // DIAG v0.2.5: лишние имена Player-событий — вдруг pause тут.
-            ['pause', 'play', 'playing', 'rewind', 'seek', 'seeked', 'waiting', 'canplay', 'time', 'tick'].forEach(function (name) {
-                try { Lampa.Player.listener.follow(name, function () { try { console.log('[trakt_v3] PL ' + name); } catch (_) {} }); } catch (_) {}
-            });
-            // DIAG v0.2.5: отдельный объект Lampa.PlayerVideo.listener?
-            try {
-                if (Lampa.PlayerVideo && Lampa.PlayerVideo.listener && Lampa.PlayerVideo.listener.follow) {
-                    ['pause', 'play', 'timeupdate'].forEach(function (name) {
-                        Lampa.PlayerVideo.listener.follow(name, function () { try { console.log('[trakt_v3] PV2 ' + name); } catch (_) {} });
-                    });
-                    console.log('[trakt_v3] Lampa.PlayerVideo.listener probe attached');
-                } else {
-                    console.log('[trakt_v3] no Lampa.PlayerVideo.listener');
-                }
-            } catch (_) {}
-
-            if (Lampa.Listener && typeof Lampa.Listener.follow === 'function') {
-                Lampa.Listener.follow('PlayerVideo', onPlayerVideoEvent);
+            // Player: открытие/закрытие сеанса (работает и в браузере, и на Tizen).
+            //   start → scrobble/start, destroy/stop → финальный stop, ended → stop@100,
+            //   visibility hidden → финализация (часто предшествует kill).
+            Lampa.Player.listener.follow('start', onScrobbleStart);
+            Lampa.Player.listener.follow('destroy', finalizeStop);
+            Lampa.Player.listener.follow('stop', finalizeStop);
+            Lampa.Player.listener.follow('ended', onScrobbleEnded);
+            Lampa.Player.listener.follow('visibility', onScrobbleVisibility);
+            // PlayerVideo: пауза/резюм.
+            if (Lampa.PlayerVideo && Lampa.PlayerVideo.listener && typeof Lampa.PlayerVideo.listener.follow === 'function') {
+                Lampa.PlayerVideo.listener.follow('pause', onPlayerPause);
+                Lampa.PlayerVideo.listener.follow('play', onPlayerPlay);
             }
-            console.log('[trakt_v3] player scrobble hook installed (DIAG v0.2.5)');
+            console.log('[trakt_v3] player scrobble hook installed');
         } catch (err) {
             try { console.warn('[trakt_v3] player hook err', err); } catch (_) {}
         }
