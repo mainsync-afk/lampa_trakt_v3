@@ -16,8 +16,9 @@ import movieRoutes from './routes/movie.js';
 import progressRoutes from './routes/progress.js';
 import statesRoutes from './routes/states.js';
 import scrobbleRoutes from './routes/scrobble.js';
+import { scrobbleSessions } from './lib/scrobbleSessions.js';
 
-const VERSION = '0.6.0';
+const VERSION = '0.7.0';
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || '0.0.0.0';
 
@@ -67,6 +68,9 @@ writeQueue.init({
     log: app.log,
     onSuccess: () => syncEngine.triggerBackgroundSync(200)
 });
+
+// scrobble session-store + watchdog (финализация мёртвых сессий).
+scrobbleSessions.init(app.log);
 
 await app.register(healthRoutes);
 await app.register(foldersRoutes);

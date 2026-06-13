@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.2.8';
+    var VERSION = '0.3.0';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -805,33 +805,58 @@
     }
 
     // ────────────────────────────────────────────────────────────────────
-    // Scrobble: live-просмотр через Trakt /scrobble/* (плагин → наш сервер).
-    //   Player start → scrobble/start, pause/hidden → pause, stop/ended → stop.
-    // Порог 80% (watched) и дедуп считает САМ Trakt на stop. Идентификация —
-    // через hashToEpisode/hashToMovie (заполнены при открытии карточки). Прогресс
-    // берём из Timeline-апдейтов (currentPlay.progress). Шлём fire-and-forget —
-    // плеер не блокируем.
+    // Scrobble: тонкая отправка событий плеера на НАШ сервер (он — авторитет).
+    //   start / progress(heartbeat ~25с) / pause / stop.
+    // Решение watched (>=80%), вызовы Trakt scrobble и финализацию мёртвых
+    // сессий watchdog'ом делает СЕРВЕР. Клиент только сообщает, что играет и где.
+    // Идентификация — через hashToEpisode/hashToMovie (заполнены при открытии
+    // карточки). Прогресс — из PlayerVideo/timeupdate (currentPlay.progress).
+    // Fire-and-forget — плеер не блокируем.
     // ────────────────────────────────────────────────────────────────────
-    var currentPlay = null; // { type, tmdb, season?, episode?, hash, progress }
+    var STORAGE_DEVICE_ID = 'trakt_v3_device_id';
+    var currentPlay = null;    // { type, tmdb, season?, episode?, hash, progress, paused }
+    var heartbeatTimer = null;
 
-    function scrobbleSend(action) {
+    // Постоянный id устройства (UUID не из MAC — он браузеру недоступен; просто
+    // случайный, один раз в Storage). Нужен серверу как ключ live-сессии, чтобы
+    // несколько устройств семьи играли параллельно, не мешая друг другу.
+    function getDeviceId() {
+        var id = '';
+        try { id = String(Lampa.Storage.get(STORAGE_DEVICE_ID, '') || ''); } catch (_) {}
+        if (!id) {
+            id = 'dev-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
+            try { Lampa.Storage.set(STORAGE_DEVICE_ID, id); } catch (_) {}
+        }
+        return id;
+    }
+
+    function scrobbleSend(event) {
         if (!currentPlay) return;
         var body = {
-            action: action,
-            progress: currentPlay.progress || 0,
+            event: event,
+            device_id: getDeviceId(),
+            type: currentPlay.type,
             tmdb: currentPlay.tmdb,
-            type: currentPlay.type
+            progress: currentPlay.progress || 0
         };
         if (currentPlay.type === 'show') {
             body.season = currentPlay.season;
             body.episode = currentPlay.episode;
         }
-        serverPost('/api/scrobble/' + action, body).catch(function () {});
+        serverPost('/api/scrobble', body).catch(function () {});
         try {
-            console.log('[trakt_v3] scrobble ' + action + ' ' + currentPlay.type + ':' + currentPlay.tmdb
+            console.log('[trakt_v3] scrobble ' + event + ' ' + currentPlay.type + ':' + currentPlay.tmdb
                 + (currentPlay.type === 'show' ? ' S' + currentPlay.season + 'E' + currentPlay.episode : '')
                 + ' @' + (currentPlay.progress || 0) + '%');
         } catch (_) {}
+    }
+
+    function startHeartbeat() {
+        stopHeartbeat();
+        heartbeatTimer = setInterval(function () { if (currentPlay) scrobbleSend('progress'); }, 25000);
+    }
+    function stopHeartbeat() {
+        if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
     }
 
     function resolvePlayIdentity(data) {
@@ -856,15 +881,16 @@
     function onScrobbleStart(data) {
         try {
             currentPlay = resolvePlayIdentity(data);
-            if (currentPlay) scrobbleSend('start');
+            if (currentPlay) { scrobbleSend('start'); startHeartbeat(); }
             else { try { console.warn('[trakt_v3] scrobble: identity unresolved', data && data.timeline); } catch (_) {} }
         } catch (e) { try { console.warn('[trakt_v3] scrobble start err', e); } catch (_) {} }
     }
-    // Финальный stop: Trakt сам решает watched (>=80%) / resume-точка (<80%).
-    // Шлём один раз и обнуляем сеанс (повторные защищены guard'ом + дедупом Trakt).
+    // Финальный stop: сервер сам решает watched (>=80%) / resume-точка (<80%).
+    // Шлём один раз и обнуляем сеанс; повторные на сервере глушит дедуп Trakt.
     function finalizeStop() {
         if (!currentPlay) return;
         scrobbleSend('stop');
+        stopHeartbeat();
         currentPlay = null;
     }
     function onScrobbleEnded() {
@@ -881,11 +907,10 @@
     // ведёт Timeline-хук (currentPlay.progress), здесь только pause/play.
     function onPlayerPause() {
         if (!currentPlay) return;
-        // >=80% → сразу фиксируем watched через stop: переживёт убийство приложения
-        //         («поставил на паузу и закрыл Lampa»).
-        // <80%  → обычная pause-точка возобновления.
-        if ((currentPlay.progress || 0) >= 80) finalizeStop();
-        else { scrobbleSend('pause'); currentPlay.paused = true; }
+        // Просто сообщаем серверу о паузе с текущим прогрессом. Решение
+        // «>=80% → watched, <80% → pause» принимает сервер.
+        currentPlay.paused = true;
+        scrobbleSend('pause');
     }
     function onPlayerPlay() {
         // Резюм после паузы — снова start, чтобы Trakt вышел из paused. На первом
