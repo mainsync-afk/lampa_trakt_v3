@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.2.6';
+    var VERSION = '0.2.7';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -892,6 +892,22 @@
         // запуске paused не выставлен (start уже ушёл из Player.start) — не дублируем.
         if (currentPlay && currentPlay.paused) { currentPlay.paused = false; scrobbleSend('start'); }
     }
+    // Живой прогресс из PlayerVideo/timeupdate (~1/сек) — точнее, чем Timeline-хук.
+    // Нужен для корректной проверки порога 80% на паузе и честного % в stop.
+    function onPlayerTimeupdate(e) {
+        if (!currentPlay || !e) return;
+        // Разовый лог формы payload — чтобы знать имена полей (потом убрать).
+        if (!window.__trakt_v3_tu_logged) {
+            window.__trakt_v3_tu_logged = true;
+            try { console.log('[trakt_v3] timeupdate payload keys=' + Object.keys(e).join(',')
+                + ' time=' + e.time + ' position=' + e.position + ' duration=' + e.duration + ' percent=' + e.percent); } catch (_) {}
+        }
+        var pct = Number(e.percent);
+        if (Number.isFinite(pct) && pct > 0) { currentPlay.progress = Math.round(Math.min(100, pct)); return; }
+        var dur = Number(e.duration) || 0;
+        var pos = Number(e.time != null ? e.time : e.position) || 0;
+        if (dur > 0) currentPlay.progress = Math.round(pos / dur * 100);
+    }
 
     function installPlayerScrobbleHook() {
         if (window.__trakt_v3_player_hook_installed) return;
@@ -910,6 +926,7 @@
             if (Lampa.PlayerVideo && Lampa.PlayerVideo.listener && typeof Lampa.PlayerVideo.listener.follow === 'function') {
                 Lampa.PlayerVideo.listener.follow('pause', onPlayerPause);
                 Lampa.PlayerVideo.listener.follow('play', onPlayerPlay);
+                Lampa.PlayerVideo.listener.follow('timeupdate', onPlayerTimeupdate);
             }
             console.log('[trakt_v3] player scrobble hook installed');
         } catch (err) {
