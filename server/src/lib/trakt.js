@@ -141,7 +141,12 @@ export const trakt = {
     addToCollection:     (body) => postJson('/sync/collection', body),
     removeFromCollection:(body) => postJson('/sync/collection/remove', body),
     addToList:           (listId, body) => postJson(`/users/me/lists/${listId}/items`, body),
-    removeFromList:      (listId, body) => postJson(`/users/me/lists/${listId}/items/remove`, body)
+    removeFromList:      (listId, body) => postJson(`/users/me/lists/${listId}/items/remove`, body),
+
+    // hidden/progress_watched — нативный «drop» Trakt (скрытие из up next/progress).
+    hiddenProgress:      () => getJson('/users/hidden/progress_watched?type=show&limit=2000'),
+    addToHidden:         (body) => postJson('/users/hidden/progress_watched', body),
+    removeFromHidden:    (body) => postJson('/users/hidden/progress_watched/remove', body)
 };
 
 export { ensureFreshAuth, refreshToken };

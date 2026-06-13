@@ -9,6 +9,9 @@ import { repo } from '../lib/repo.js';
 import { normalizeTraktSnapshot } from './normalize.js';
 import { enrichCards } from './enrich.js';
 import { classifyAll } from './classifier.js';
+import { writeQueue } from '../lib/writeQueue.js';
+import { getDroppedListId } from '../lib/appConfig.js';
+import { getDropIntent, clearDropIntent } from '../lib/dropIntents.js';
 
 const POLL_INTERVAL_SEC = Number(process.env.SYNC_POLL_INTERVAL_SEC || 60);
 
@@ -87,7 +90,8 @@ async function fetchAll() {
         watchedShows,
         collectionMovies,
         collectionShows,
-        lists
+        lists,
+        hidden
     ] = await Promise.all([
         trakt.watchlist('movies'),
         trakt.watchlist('shows'),
@@ -95,7 +99,9 @@ async function fetchAll() {
         trakt.watched('shows'),
         trakt.collection('movies'),
         trakt.collection('shows'),
-        trakt.lists()
+        trakt.lists(),
+        // hidden — нативный drop. Резильентно: сбой не должен валить весь синк.
+        trakt.hiddenProgress().catch(() => [])
     ]);
 
     const listItems = {};
@@ -110,8 +116,64 @@ async function fetchAll() {
         watchlistMovies, watchlistShows,
         watchedMovies, watchedShows,
         collectionMovies, collectionShows,
-        lists, listItems
+        lists, listItems, hidden
     };
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Reconciler «Брошено»: держит в синхроне список «Брошено» (dropped_list_id),
+// нативный Trakt-hidden и dropped-состояние карточки. Источник правды — список;
+// hidden зеркалим; нативный drop затягиваем в список. Окно-намерение гасит
+// «воскрешение» на лагах Trakt. Только shows (у фильмов нативного hidden нет).
+// ────────────────────────────────────────────────────────────────────
+function buildHiddenTmdbSet(hidden) {
+    const set = new Set();
+    if (Array.isArray(hidden)) {
+        for (const h of hidden) {
+            const tmdb = h?.show?.ids?.tmdb;
+            if (tmdb) set.add(Number(tmdb));
+        }
+    }
+    return set;
+}
+
+function reconcileDropped(cards, hidden, dropListId) {
+    if (!dropListId) return;
+    const hiddenSet = buildHiddenTmdbSet(hidden);
+
+    for (const c of Object.values(cards)) {
+        if (c.type !== 'show' || !c.tmdb) continue;
+        const key = 'show:' + c.tmdb;
+        const inList = Array.isArray(c.in_lists) && c.in_lists.includes(dropListId);
+        const inHidden = hiddenSet.has(Number(c.tmdb));
+        const intent = getDropIntent(key);
+        const desired = (intent !== null) ? intent : (inList || inHidden);
+
+        const body = { shows: [{ ids: { tmdb: c.tmdb } }] };
+
+        // list ↔ desired (локально мутируем, чтобы dropped отразился сразу)
+        if (desired && !inList) {
+            c.in_lists = [...(c.in_lists || []), dropListId];
+            c.list_listed_at = { ...(c.list_listed_at || {}), [dropListId]: new Date().toISOString() };
+            try { writeQueue.enqueue({ kind: 'addToList', args: { listId: dropListId, body } }); } catch (_) {}
+        } else if (!desired && inList) {
+            c.in_lists = (c.in_lists || []).filter(x => x !== dropListId);
+            if (c.list_listed_at) delete c.list_listed_at[dropListId];
+            try { writeQueue.enqueue({ kind: 'removeFromList', args: { listId: dropListId, body } }); } catch (_) {}
+        }
+
+        // hidden ↔ desired
+        if (desired && !inHidden) {
+            try { writeQueue.enqueue({ kind: 'addToHidden', args: { body } }); } catch (_) {}
+        } else if (!desired && inHidden) {
+            try { writeQueue.enqueue({ kind: 'removeFromHidden', args: { body } }); } catch (_) {}
+        }
+
+        // намерение держим, пока Trakt не подтвердит ОБА хранилища
+        if (intent !== null && desired === inList && desired === inHidden) {
+            clearDropIntent(key);
+        }
+    }
 }
 
 async function fetchProgressForWatched(cards, log) {
@@ -229,6 +291,13 @@ async function performSync(activities) {
 
     // Classify все карточки (movies + shows)
     classifyAll(cards);
+
+    // Reconcile «Брошено» (список ↔ hidden ↔ dropped). Не должен ронять синк.
+    try {
+        reconcileDropped(cards, raw.hidden, getDroppedListId());
+    } catch (err) {
+        _state.log?.warn({ err: String(err?.message || err) }, 'reconcileDropped failed');
+    }
 
     const lists = (raw.lists || []).map(l => ({
         id: l.ids.trakt,

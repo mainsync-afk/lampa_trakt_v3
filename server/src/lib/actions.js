@@ -11,6 +11,8 @@
 import { writeQueue } from './writeQueue.js';
 import { repo } from './repo.js';
 import { getSnapshot } from '../sync/index.js';
+import { getDroppedListId } from './appConfig.js';
+import { setDropIntent } from './dropIntents.js';
 
 function key(type, tmdb) { return type + ':' + tmdb; }
 
@@ -148,5 +150,20 @@ export async function toggleListMembership(tmdb, type, listId) {
         args: { listId: lid, body: payload(type, tmdb) },
         rollback: async () => rollbackList(type, tmdb, prev)
     });
+
+    // Если это список «Брошено» — зеркалим нативный Trakt-hidden (для shows) и
+    // ставим окно-намерение, чтобы reconciler не «воскресил» на лагах Trakt.
+    const dropId = getDroppedListId();
+    if (dropId && lid === dropId) {
+        const dropped = !wasIn; // добавили в список → стало dropped
+        setDropIntent(type + ':' + tmdb, dropped);
+        if (type === 'show') {
+            writeQueue.enqueue({
+                kind: dropped ? 'addToHidden' : 'removeFromHidden',
+                args: { body: payload(type, tmdb) }
+            });
+        }
+    }
+
     return { state: cardState(card), action: wasIn ? 'removed' : 'added' };
 }

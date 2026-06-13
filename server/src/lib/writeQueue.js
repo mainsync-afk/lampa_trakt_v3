@@ -32,7 +32,9 @@ const KIND_FN = {
     addToCollection:      (a) => trakt.addToCollection(a.body),
     removeFromCollection: (a) => trakt.removeFromCollection(a.body),
     addToList:            (a) => trakt.addToList(a.listId, a.body),
-    removeFromList:       (a) => trakt.removeFromList(a.listId, a.body)
+    removeFromList:       (a) => trakt.removeFromList(a.listId, a.body),
+    addToHidden:          (a) => trakt.addToHidden(a.body),
+    removeFromHidden:     (a) => trakt.removeFromHidden(a.body)
 };
 
 const _state = {
