@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.4.9';
+    var VERSION = '0.4.10';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -601,6 +601,9 @@
                 onSelect: (function (a) { return function () { handleSidebarTap(a, card); }; })(act)
             });
         });
+        // Заголовок-разделитель «Еще» — отделяет наши пункты от нативных категорий
+        // (как в контекст-меню «Действие»).
+        inject.push({ title: 'Еще', separator: true, __trakt_v3_fav: true });
         Array.prototype.unshift.apply(params.items, inject);
 
         var prevOnSelect = params.onSelect;
