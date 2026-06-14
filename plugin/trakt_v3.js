@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.4.0';
+    var VERSION = '0.4.1';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -485,6 +485,51 @@
             }
         }, true /* capture phase — до Lampa-листенера */);
         try { console.log('[trakt_v3] hover:long capture hook installed'); } catch (_) {}
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    // Порядок в правом контекст-сайдбаре карточки. Lampa строит меню из
+    // Manifest.plugins вперемешку с чужими пунктами. Патчим Lampa.Select.show:
+    // наши пункты (onSelect содержит 'handleSidebarTap') поднимаем наверх и
+    // ставим перед ними заголовок «Trakt». Идемпотентно (старый заголовок
+    // выкидываем перед пересборкой). Чужие меню не трогаем.
+    // ────────────────────────────────────────────────────────────────────
+    function reorderSidebarItems(items) {
+        if (!Array.isArray(items)) return;
+        var ours = [], rest = [];
+        for (var i = 0; i < items.length; i++) {
+            var it = items[i];
+            if (it && it.__trakt_v3_header) continue; // убрать наш прежний заголовок
+            var isOurs = false;
+            if (it && typeof it.onSelect === 'function') {
+                var src = '';
+                try { src = String(it.onSelect); } catch (_) {}
+                if (src.indexOf('handleSidebarTap') !== -1) isOurs = true;
+            }
+            (isOurs ? ours : rest).push(it);
+        }
+        if (!ours.length) return; // не наше меню — оставляем как есть
+        var header = { title: 'Trakt', separator: true, __trakt_v3_header: true };
+        var reordered = [header].concat(ours, rest);
+        items.length = 0;
+        Array.prototype.push.apply(items, reordered);
+    }
+
+    function patchSidebarOrder() {
+        if (!window.Lampa || !Lampa.Select || typeof Lampa.Select.show !== 'function') return;
+        if (Lampa.Select.show.__trakt_v3_order_patched) return;
+        var orig = Lampa.Select.show;
+        var patched = function (params) {
+            try {
+                if (params && Array.isArray(params.items)) reorderSidebarItems(params.items);
+            } catch (e) {
+                try { console.warn('[trakt_v3] reorderSidebar err', e); } catch (_) {}
+            }
+            return orig.apply(this, arguments);
+        };
+        patched.__trakt_v3_order_patched = true;
+        Lampa.Select.show = patched;
+        try { console.log('[trakt_v3] Lampa.Select.show patched (sidebar order)'); } catch (_) {}
     }
 
     // ────────────────────────────────────────────────────────────────────
@@ -2059,6 +2104,7 @@
         registerSettings();
 
         installHoverLongHook();
+        patchSidebarOrder();
         installFullCardHook();
         installTimelineUpdateHook();
         installPlayerScrobbleHook();
