@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.4.12';
+    var VERSION = '0.4.13';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -541,20 +541,12 @@
         for (var i = 0; i < items.length; i++) {
             var it = items[i];
             if (it && it.__trakt_v3_inject) continue; // наши вставки (заголовок/разделитель)
-            var meta = it ? ourMap[it.title] : null;
-            if (meta) {
-                // toggle-пункты → нативный чекбокс (как родные «Еще»), чистое имя
-                // без текстового префикса. Индикаторы (Смотрю/Продолжение) не
-                // переключаются — оставляем текстом (✓/пробел).
-                if (meta.toggle) {
-                    it.title = meta.base;
-                    it.checkbox = true;
-                    it.checked = !!meta.active;
-                }
-                ours.push(it);
-            } else {
-                rest.push(it);
-            }
+            // НЕ делаем нативный checkbox: Lampa обрабатывает checkbox-пункты
+            // внутренне по полю where/collect и НЕ зовёт onSelect — наш тап тогда
+            // не срабатывает. Оставляем обычный пункт с текстовым префиксом ☑/☐/✓
+            // (его ставит updateAllOurPluginNames), onSelect=onContextLauch работает.
+            if (it && ourMap[it.title]) ours.push(it);
+            else rest.push(it);
         }
         if (!ours.length) return 0; // не наше меню — оставляем как есть
 
@@ -603,9 +595,7 @@
         var inject = [{ title: 'Trakt', separator: true, __trakt_v3_fav: true }];
         ourSidebarActions().forEach(function (act) {
             inject.push({
-                title: baseNameOf(act.action),
-                checkbox: true,
-                checked: isCardActiveFor(card, act.action),
+                title: labelFor(act.action, card), // текстовый префикс ☑/☐ (без нативного checkbox)
                 __trakt_v3_fav: true,
                 __trakt_v3_act: act,
                 onSelect: (function (a) { return function () { handleSidebarTap(a, card); }; })(act)
