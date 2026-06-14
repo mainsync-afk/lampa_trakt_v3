@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.4.4';
+    var VERSION = '0.4.5';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -498,44 +498,57 @@
     // item.title в меню (их ставит updateAllOurPluginNames через тот же labelFor).
     // Чужие плагины (trakt_by_LME и т.п.) дают те же базовые имена, но БЕЗ нашего
     // префикса ☐/☑/✓ — поэтому точное совпадение их не зацепит.
-    function buildOurLabelSet() {
-        var set = {};
+    // Карта наших ожидаемых подписей → метаданные пункта (для текущей карточки).
+    function buildOurLabelMap() {
+        var map = {};
         try {
-            SIDEBAR_FIXED.forEach(function (item) { set[labelFor(item.action, currentFocusedCard)] = true; });
-            CUSTOM_LISTS.forEach(function (l) { set[labelFor('list:' + l.id, currentFocusedCard)] = true; });
+            SIDEBAR_FIXED.forEach(function (item) {
+                map[labelFor(item.action, currentFocusedCard)] = {
+                    base: baseNameOf(item.action),
+                    toggle: isToggleAction(item.action),
+                    active: currentFocusedCard ? isCardActiveFor(currentFocusedCard, item.action) : false
+                };
+            });
+            CUSTOM_LISTS.forEach(function (l) {
+                var a = 'list:' + l.id;
+                map[labelFor(a, currentFocusedCard)] = {
+                    base: baseNameOf(a),
+                    toggle: true,
+                    active: currentFocusedCard ? isCardActiveFor(currentFocusedCard, a) : false
+                };
+            });
         } catch (_) {}
-        return set;
+        return map;
     }
 
     function reorderSidebarItems(items) {
         if (!Array.isArray(items)) return;
-        var ourSet = buildOurLabelSet();
+        var ourMap = buildOurLabelMap();
         var ours = [], rest = [];
         for (var i = 0; i < items.length; i++) {
             var it = items[i];
             if (it && it.__trakt_v3_inject) continue; // наши вставки (заголовок/разделитель)
-            ((it && ourSet[it.title]) ? ours : rest).push(it);
+            var meta = it ? ourMap[it.title] : null;
+            if (meta) {
+                // toggle-пункты → нативный чекбокс (как родные «Еще»), чистое имя
+                // без текстового префикса. Индикаторы (Смотрю/Продолжение) не
+                // переключаются — оставляем текстом (✓/пробел).
+                if (meta.toggle) {
+                    it.title = meta.base;
+                    it.checkbox = true;
+                    it.checked = !!meta.active;
+                }
+                ours.push(it);
+            } else {
+                rest.push(it);
+            }
         }
         if (!ours.length) return; // не наше меню — оставляем как есть
 
-        // DIAG v0.4.4: свойства чужих пунктов — ищем, чем Lampa рисует нативный
-        // чекбокс справа (у «Еще»: Закладки/Нравится/История).
-        try {
-            var dump = rest.slice(0, 12).map(function (it) {
-                var ks = [];
-                for (var k in it) {
-                    if (Object.prototype.hasOwnProperty.call(it, k) && typeof it[k] !== 'function') ks.push(k + '=' + it[k]);
-                }
-                return '"' + (it && it.title) + '"{' + ks.join(',') + '}';
-            });
-            console.log('[trakt_v3] rest props :: ' + dump.join(' ; '));
-        } catch (_) {}
-
         var header = { title: 'Trakt', separator: true, __trakt_v3_inject: true };
-        var bottomSep = { title: '', separator: true, __trakt_v3_inject: true };
+        var divider = { title: '', separator: true, __trakt_v3_inject: true, __trakt_v3_divider: true };
         items.length = 0;
-        Array.prototype.push.apply(items, [header].concat(ours, [bottomSep], rest));
-        try { console.log('[trakt_v3] sidebar reordered: ours=' + ours.length); } catch (_) {}
+        Array.prototype.push.apply(items, [header].concat(ours, [divider], rest));
     }
 
     function patchSidebarOrder() {
@@ -544,7 +557,27 @@
         var orig = Lampa.Select.show;
         var patched = function (params) {
             try {
-                if (params && Array.isArray(params.items)) reorderSidebarItems(params.items);
+                if (params && Array.isArray(params.items)) {
+                    reorderSidebarItems(params.items);
+                    // Видимая линия-разделитель: пустой separator невидим, поэтому
+                    // дорисовываем border через per-item onRender (el=DOM, data=item).
+                    var hasDivider = params.items.some(function (it) { return it && it.__trakt_v3_divider; });
+                    if (hasDivider) {
+                        var prevOnRender = (typeof params.onRender === 'function') ? params.onRender : null;
+                        params.onRender = function (el, data) {
+                            try {
+                                if (data && data.__trakt_v3_divider && el && el.css) {
+                                    el.css({
+                                        'border-top': '0.07em solid rgba(255,255,255,0.22)',
+                                        'margin': '0.3em 1.4em',
+                                        'padding': '0'
+                                    });
+                                }
+                            } catch (_) {}
+                            if (prevOnRender) return prevOnRender.apply(this, arguments);
+                        };
+                    }
+                }
             } catch (e) {
                 try { console.warn('[trakt_v3] reorderSidebar err', e); } catch (_) {}
             }
