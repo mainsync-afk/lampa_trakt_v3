@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.4.5';
+    var VERSION = '0.4.6';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -545,10 +545,21 @@
         }
         if (!ours.length) return; // не наше меню — оставляем как есть
 
+        // Убираем строки ДРУГИХ ПЛАГИНОВ (например KinoPub), оставляя родные пункты
+        // Lampa: закладки/статусы (where/collect/checkbox) и разделители. Плагинная
+        // строка = есть onSelect и нет нативных маркеров.
+        var nativeRest = rest.filter(function (it) {
+            if (!it) return false;
+            var isNative = (it.where !== undefined) || (it.collect !== undefined)
+                        || (it.checkbox !== undefined) || (it.separator === true);
+            if (isNative) return true;
+            return typeof it.onSelect !== 'function'; // не плагинное действие — оставляем
+        });
+
         var header = { title: 'Trakt', separator: true, __trakt_v3_inject: true };
         var divider = { title: '', separator: true, __trakt_v3_inject: true, __trakt_v3_divider: true };
         items.length = 0;
-        Array.prototype.push.apply(items, [header].concat(ours, [divider], rest));
+        Array.prototype.push.apply(items, [header].concat(ours, [divider], nativeRest));
     }
 
     function patchSidebarOrder() {
@@ -566,12 +577,15 @@
                         var prevOnRender = (typeof params.onRender === 'function') ? params.onRender : null;
                         params.onRender = function (el, data) {
                             try {
-                                if (data && data.__trakt_v3_divider && el && el.css) {
-                                    el.css({
-                                        'border-top': '0.07em solid rgba(255,255,255,0.22)',
-                                        'margin': '0.3em 1.4em',
-                                        'padding': '0'
-                                    });
+                                if (data && data.__trakt_v3_divider && el) {
+                                    var node = el[0] || el; // jQuery → DOM, либо сырой DOM
+                                    if (node && node.style) {
+                                        node.style.borderTop = '0.08em solid rgba(255,255,255,0.25)';
+                                        node.style.margin = '0.35em 1.4em';
+                                        node.style.padding = '0';
+                                        node.style.minHeight = '0';
+                                    }
+                                    try { console.log('[trakt_v3] divider onRender node=' + (!!node)); } catch (_) {}
                                 }
                             } catch (_) {}
                             if (prevOnRender) return prevOnRender.apply(this, arguments);
@@ -595,6 +609,9 @@
         if (!window.Lampa || !Lampa.Manifest) return;
         if (!Array.isArray(Lampa.Manifest.plugins)) Lampa.Manifest.plugins = [];
         SIDEBAR_FIXED.forEach(function (item) {
+            // Индикаторы (Смотрю/Продолжение следует) — вычисляемые, не toggle;
+            // в сайдбаре не нужны. Регистрируем только toggle-пункты.
+            if (!item.isToggle) return;
             var marker = 'trakt_v3:' + item.action;
             for (var i = 0; i < Lampa.Manifest.plugins.length; i++) {
                 if (Lampa.Manifest.plugins[i] && Lampa.Manifest.plugins[i].__trakt_v3 === marker) return;
