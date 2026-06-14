@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.4.3';
+    var VERSION = '0.4.4';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -513,13 +513,28 @@
         var ours = [], rest = [];
         for (var i = 0; i < items.length; i++) {
             var it = items[i];
-            if (it && it.__trakt_v3_header) continue; // убрать наш прежний заголовок
+            if (it && it.__trakt_v3_inject) continue; // наши вставки (заголовок/разделитель)
             ((it && ourSet[it.title]) ? ours : rest).push(it);
         }
         if (!ours.length) return; // не наше меню — оставляем как есть
-        var header = { title: 'Trakt', separator: true, __trakt_v3_header: true };
+
+        // DIAG v0.4.4: свойства чужих пунктов — ищем, чем Lampa рисует нативный
+        // чекбокс справа (у «Еще»: Закладки/Нравится/История).
+        try {
+            var dump = rest.slice(0, 12).map(function (it) {
+                var ks = [];
+                for (var k in it) {
+                    if (Object.prototype.hasOwnProperty.call(it, k) && typeof it[k] !== 'function') ks.push(k + '=' + it[k]);
+                }
+                return '"' + (it && it.title) + '"{' + ks.join(',') + '}';
+            });
+            console.log('[trakt_v3] rest props :: ' + dump.join(' ; '));
+        } catch (_) {}
+
+        var header = { title: 'Trakt', separator: true, __trakt_v3_inject: true };
+        var bottomSep = { title: '', separator: true, __trakt_v3_inject: true };
         items.length = 0;
-        Array.prototype.push.apply(items, [header].concat(ours, rest));
+        Array.prototype.push.apply(items, [header].concat(ours, [bottomSep], rest));
         try { console.log('[trakt_v3] sidebar reordered: ours=' + ours.length); } catch (_) {}
     }
 
