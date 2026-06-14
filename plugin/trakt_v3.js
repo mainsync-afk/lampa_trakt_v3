@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.4.7';
+    var VERSION = '0.4.8';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -574,6 +574,15 @@
         var patched = function (params) {
             try {
                 if (params && Array.isArray(params.items)) {
+                    // DIAG v0.4.8: смотрим, как выглядит меню «Избранное» из полной карточки.
+                    try {
+                        var titles = params.items.map(function (it) {
+                            var m = (it && it.where !== undefined ? 'w' : '') + (it && it.checkbox !== undefined ? 'c' : '')
+                                  + (it && it.separator ? 's' : '') + (it && it.collect !== undefined ? 'C' : '');
+                            return '"' + (it && it.title) + '"' + (m ? '[' + m + ']' : '');
+                        });
+                        console.log('[trakt_v3] DIAG Select.show title="' + (params.title || '') + '" n=' + params.items.length + ' :: ' + titles.join(' ; '));
+                    } catch (_) {}
                     reorderSidebarItems(params.items);
                     // Видимая линия-разделитель: пустой separator невидим, поэтому
                     // дорисовываем border через per-item onRender (el=DOM, data=item).
