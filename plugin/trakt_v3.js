@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.4.16';
+    var VERSION = '0.4.17';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -673,7 +673,7 @@
         if (window.__trakt_v3_sidebar_style) return;
         window.__trakt_v3_sidebar_style = true;
         try {
-            var css = '.trakt-check{display:inline-block;color:#5cba5c;font-weight:700;font-size:1.55em;line-height:0;margin-right:0.7em;vertical-align:middle;transform:rotate(-6deg);}'
+            var css = '.trakt-check{display:inline-block;color:#5cba5c;font-weight:700;font-size:1.4em;line-height:1;margin-right:0.6em;vertical-align:middle;transform:rotate(-6deg);}'
                     + '.trakt-check--off{visibility:hidden;}';
             var st = document.createElement('style');
             st.id = 'trakt_v3_sidebar_style';
