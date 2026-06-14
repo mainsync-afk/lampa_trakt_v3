@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.4.17';
+    var VERSION = '0.4.18';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -533,10 +533,13 @@
         return (c && (c.title || c.name || c.original_title || c.original_name)) || '';
     }
 
-    // Галочка перед названием (HTML в title). Активная — видимая, неактивная —
-    // скрытая (visibility:hidden) для выравнивания имён. Размер/отступ — в CSS.
-    function checkMark(checked) {
-        return '<span class="trakt-check' + (checked ? '' : ' trakt-check--off') + '">✓</span>';
+    // Иконка-закладка перед названием (HTML в title): контур = не отмечено,
+    // залитая цветом = отмечено. Размер/цвет/отступ — в CSS (.trakt-bm).
+    function bookmarkIcon(checked) {
+        return '<span class="trakt-bm">'
+             + '<svg viewBox="0 0 24 24" fill="' + (checked ? 'currentColor' : 'none')
+             + '" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
+             + '<path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg></span>';
     }
 
     function reorderSidebarItems(items) {
@@ -550,7 +553,7 @@
             // префикса и помечаем пункт — галочку рисует decorateOurItem в onRender.
             var meta = it ? ourMap[it.title] : null;
             if (meta) {
-                it.title = checkMark(meta.active) + meta.base; // галочка HTML-ом + чистое имя
+                it.title = bookmarkIcon(meta.active) + meta.base; // иконка-закладка + чистое имя
                 ours.push(it);
             } else {
                 rest.push(it);
@@ -603,7 +606,7 @@
         var inject = [{ title: 'Trakt', separator: true, __trakt_v3_fav: true }];
         ourSidebarActions().forEach(function (act) {
             inject.push({
-                title: checkMark(isCardActiveFor(card, act.action)) + baseNameOf(act.action),
+                title: bookmarkIcon(isCardActiveFor(card, act.action)) + baseNameOf(act.action),
                 __trakt_v3_fav: true,
                 __trakt_v3_act: act,
                 onSelect: (function (a) { return function () { handleSidebarTap(a, card); }; })(act)
@@ -667,14 +670,13 @@
         try { console.log('[trakt_v3] Lampa.Select.show patched (sidebar)'); } catch (_) {}
     }
 
-    // Стиль галочки: ✓ покрупнее, с отступом до названия. Неактивным — невидимая
-    // (visibility:hidden) для выравнивания имён.
+    // Стиль иконки-закладки: почти во всю высоту строки, с отступом до названия.
     function ensureSidebarStyle() {
         if (window.__trakt_v3_sidebar_style) return;
         window.__trakt_v3_sidebar_style = true;
         try {
-            var css = '.trakt-check{display:inline-block;color:#5cba5c;font-weight:700;font-size:1.4em;line-height:1;margin-right:0.6em;vertical-align:middle;transform:rotate(-6deg);}'
-                    + '.trakt-check--off{visibility:hidden;}';
+            var css = '.trakt-bm{display:inline-block;vertical-align:middle;margin-right:0.6em;color:#5cba5c;}'
+                    + '.trakt-bm svg{height:1.7em;width:1.7em;display:block;}';
             var st = document.createElement('style');
             st.id = 'trakt_v3_sidebar_style';
             st.textContent = css;
