@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.4.1';
+    var VERSION = '0.4.2';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -521,7 +521,17 @@
         var orig = Lampa.Select.show;
         var patched = function (params) {
             try {
-                if (params && Array.isArray(params.items)) reorderSidebarItems(params.items);
+                if (params && Array.isArray(params.items)) {
+                    // DIAG v0.4.2: что реально приходит в Select.show.
+                    try {
+                        var dump = params.items.map(function (it) {
+                            var s = ''; try { s = String(it && it.onSelect); } catch (_) {}
+                            return (it && it.title) + '|hst=' + (s.indexOf('handleSidebarTap') !== -1 ? 1 : 0);
+                        });
+                        console.log('[trakt_v3] Select.show title="' + (params.title || '') + '" items=' + params.items.length + ' :: ' + dump.join(' ; '));
+                    } catch (_) {}
+                    reorderSidebarItems(params.items);
+                }
             } catch (e) {
                 try { console.warn('[trakt_v3] reorderSidebar err', e); } catch (_) {}
             }
