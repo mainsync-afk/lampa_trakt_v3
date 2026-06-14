@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.4.11';
+    var VERSION = '0.4.12';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -359,6 +359,7 @@
     }
 
     function handleSidebarTap(item, object) {
+        try { console.log('[trakt_v3] handleSidebarTap action=' + (item && item.action) + ' cardId=' + (object && object.id)); } catch (_) {}
         // continue/returning — индикаторы, на тап ничего не делаем
         if (!item.isToggle) return;
 
@@ -528,8 +529,13 @@
         return map;
     }
 
+    // Имя карточки для заголовка меню.
+    function cardName(c) {
+        return (c && (c.title || c.name || c.original_title || c.original_name)) || '';
+    }
+
     function reorderSidebarItems(items) {
-        if (!Array.isArray(items)) return;
+        if (!Array.isArray(items)) return 0;
         var ourMap = buildOurLabelMap();
         var ours = [], rest = [];
         for (var i = 0; i < items.length; i++) {
@@ -550,7 +556,7 @@
                 rest.push(it);
             }
         }
-        if (!ours.length) return; // не наше меню — оставляем как есть
+        if (!ours.length) return 0; // не наше меню — оставляем как есть
 
         // Убираем строки ДРУГИХ ПЛАГИНОВ (например KinoPub), оставляя родные пункты
         // Lampa: закладки/статусы (where/collect/checkbox) и разделители. Плагинная
@@ -567,6 +573,7 @@
         var divider = { title: '', separator: true, __trakt_v3_inject: true, __trakt_v3_divider: true };
         items.length = 0;
         Array.prototype.push.apply(items, [header].concat(ours, [divider], nativeRest));
+        return ours.length;
     }
 
     // Наши toggle-действия для меню «Избранное»: 2 фикс. (Закладки/Просмотрено) +
@@ -588,6 +595,9 @@
         var card = currentFullCard;
         if (!card) { try { var a = Lampa.Activity.active(); card = a && (a.card_data || a.card || a.movie); } catch (_) {} }
         if (!card) return;
+        // Заголовок меню → имя карточки.
+        var nm = cardName(card);
+        if (nm) params.title = nm;
         if (params.items.some(function (it) { return it && it.__trakt_v3_fav; })) return; // уже вставлено
 
         var inject = [{ title: 'Trakt', separator: true, __trakt_v3_fav: true }];
@@ -632,7 +642,12 @@
                         injectFavoriteItems(params);
                         return orig.apply(this, arguments);
                     }
-                    reorderSidebarItems(params.items);
+                    var n = reorderSidebarItems(params.items);
+                    // Заголовок контекст-меню → имя карточки.
+                    if (n > 0 && currentFocusedCard) {
+                        var nm = cardName(currentFocusedCard);
+                        if (nm) params.title = nm;
+                    }
                     // Видимая линия-разделитель: пустой separator невидим, поэтому
                     // дорисовываем border через per-item onRender (el=DOM, data=item).
                     var hasDivider = params.items.some(function (it) { return it && it.__trakt_v3_divider; });
