@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.4.14';
+    var VERSION = '0.4.15';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -359,7 +359,6 @@
     }
 
     function handleSidebarTap(item, object) {
-        try { console.log('[trakt_v3] handleSidebarTap action=' + (item && item.action) + ' cardId=' + (object && object.id)); } catch (_) {}
         // continue/returning — индикаторы, на тап ничего не делаем
         if (!item.isToggle) return;
 
@@ -541,12 +540,17 @@
         for (var i = 0; i < items.length; i++) {
             var it = items[i];
             if (it && it.__trakt_v3_inject) continue; // наши вставки (заголовок/разделитель)
-            // НЕ делаем нативный checkbox: Lampa обрабатывает checkbox-пункты
-            // внутренне по полю where/collect и НЕ зовёт onSelect — наш тап тогда
-            // не срабатывает. Оставляем обычный пункт с текстовым префиксом ☑/☐/✓
-            // (его ставит updateAllOurPluginNames), onSelect=onContextLauch работает.
-            if (it && ourMap[it.title]) ours.push(it);
-            else rest.push(it);
+            // НЕ нативный checkbox (он ломает наш тап). Чистим имя от текстового
+            // префикса и помечаем пункт — галочку рисует decorateOurItem в onRender.
+            var meta = it ? ourMap[it.title] : null;
+            if (meta) {
+                it.title = meta.base;
+                it.__trakt_v3_item = true;
+                it.__trakt_v3_checked = !!meta.active;
+                ours.push(it);
+            } else {
+                rest.push(it);
+            }
         }
         if (!ours.length) return 0; // не наше меню — оставляем как есть
 
@@ -595,7 +599,9 @@
         var inject = [{ title: 'Trakt', separator: true, __trakt_v3_fav: true }];
         ourSidebarActions().forEach(function (act) {
             inject.push({
-                title: labelFor(act.action, card), // текстовый префикс ☑/☐ (без нативного checkbox)
+                title: baseNameOf(act.action), // чистое имя; галочку рисует decorateOurItem
+                __trakt_v3_item: true,
+                __trakt_v3_checked: isCardActiveFor(card, act.action),
                 __trakt_v3_fav: true,
                 __trakt_v3_act: act,
                 onSelect: (function (a) { return function () { handleSidebarTap(a, card); }; })(act)
@@ -622,51 +628,79 @@
     function patchSidebarOrder() {
         if (!window.Lampa || !Lampa.Select || typeof Lampa.Select.show !== 'function') return;
         if (Lampa.Select.show.__trakt_v3_order_patched) return;
+        ensureSidebarStyle();
         var orig = Lampa.Select.show;
         var patched = function (params) {
             try {
                 if (params && Array.isArray(params.items)) {
-                    // Меню «Избранное» из полной карточки — там наших пунктов нет,
-                    // инжектим. Иначе это контекст-меню карточки — переупорядочиваем.
+                    var ourMenu = false;
                     if (params.title === 'Избранное') {
-                        injectFavoriteItems(params);
-                        return orig.apply(this, arguments);
+                        injectFavoriteItems(params); // внутри ставит params.title = имя карточки
+                        ourMenu = true;
+                    } else {
+                        var n = reorderSidebarItems(params.items);
+                        if (n > 0) {
+                            ourMenu = true;
+                            if (currentFocusedCard) {
+                                var nm = cardName(currentFocusedCard);
+                                if (nm) params.title = nm;
+                            }
+                        }
                     }
-                    var n = reorderSidebarItems(params.items);
-                    // Заголовок контекст-меню → имя карточки.
-                    if (n > 0 && currentFocusedCard) {
-                        var nm = cardName(currentFocusedCard);
-                        if (nm) params.title = nm;
-                    }
-                    // Видимая линия-разделитель: пустой separator невидим, поэтому
-                    // дорисовываем border через per-item onRender (el=DOM, data=item).
-                    var hasDivider = params.items.some(function (it) { return it && it.__trakt_v3_divider; });
-                    if (hasDivider) {
+                    if (ourMenu) {
                         var prevOnRender = (typeof params.onRender === 'function') ? params.onRender : null;
                         params.onRender = function (el, data) {
-                            try {
-                                if (data && data.__trakt_v3_divider && el) {
-                                    var node = el[0] || el; // jQuery → DOM, либо сырой DOM
-                                    if (node && node.style) {
-                                        node.style.borderTop = '0.08em solid rgba(255,255,255,0.25)';
-                                        node.style.margin = '0.35em 1.4em';
-                                        node.style.padding = '0';
-                                        node.style.minHeight = '0';
-                                    }
-                                }
-                            } catch (_) {}
+                            try { decorateOurItem(el, data); } catch (_) {}
                             if (prevOnRender) return prevOnRender.apply(this, arguments);
                         };
                     }
                 }
             } catch (e) {
-                try { console.warn('[trakt_v3] reorderSidebar err', e); } catch (_) {}
+                try { console.warn('[trakt_v3] sidebar patch err', e); } catch (_) {}
             }
             return orig.apply(this, arguments);
         };
         patched.__trakt_v3_order_patched = true;
         Lampa.Select.show = patched;
-        try { console.log('[trakt_v3] Lampa.Select.show patched (sidebar order)'); } catch (_) {}
+        try { console.log('[trakt_v3] Lampa.Select.show patched (sidebar)'); } catch (_) {}
+    }
+
+    // Стиль галочки: ✓ покрупнее, с отступом до названия. Неактивным — невидимая
+    // (visibility:hidden) для выравнивания имён.
+    function ensureSidebarStyle() {
+        if (window.__trakt_v3_sidebar_style) return;
+        window.__trakt_v3_sidebar_style = true;
+        try {
+            var css = '.trakt-check{display:inline-block;color:#5cba5c;font-weight:700;font-size:1.55em;line-height:0;margin-right:0.7em;vertical-align:middle;transform:rotate(-6deg);}'
+                    + '.trakt-check--off{visibility:hidden;}';
+            var st = document.createElement('style');
+            st.id = 'trakt_v3_sidebar_style';
+            st.textContent = css;
+            document.head.appendChild(st);
+        } catch (_) {}
+    }
+
+    // Декор пункта в onRender: разделитель → линия; наш пункт → галочка ✓ в начале
+    // названия (видимая для активного, скрытая для неактивного — ради выравнивания).
+    function decorateOurItem(el, data) {
+        if (!data || !el) return;
+        if (data.__trakt_v3_divider) {
+            var node = el[0] || el;
+            if (node && node.style) {
+                node.style.borderTop = '0.08em solid rgba(255,255,255,0.25)';
+                node.style.margin = '0.35em 1.4em';
+                node.style.padding = '0';
+                node.style.minHeight = '0';
+            }
+            return;
+        }
+        if (data.__trakt_v3_item && el.find) {
+            if (el.find('.trakt-check').length) return; // уже добавлено
+            var $t = el.find('.selectbox__title');
+            if (!$t.length) $t = el.find('.selectbox-item__title');
+            if (!$t.length) $t = el;
+            $t.prepend('<span class="trakt-check' + (data.__trakt_v3_checked ? '' : ' trakt-check--off') + '">✓</span>');
+        }
     }
 
     // ────────────────────────────────────────────────────────────────────
