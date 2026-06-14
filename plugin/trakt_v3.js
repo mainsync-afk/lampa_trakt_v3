@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.4.21';
+    var VERSION = '0.4.22';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -1170,6 +1170,9 @@
         window.__trakt_v3_badges_style_injected = true;
         try {
             var css = ''
+                // Прячем нативные иконки Lampa на превью (закладка/история и пр.) —
+                // у нас своё состояние через Trakt-бэйджи.
+                + '.card__icons{display:none !important;}'
                 + '.trakt-badges{position:absolute;top:0.4em;right:0.4em;display:flex;flex-direction:column;gap:0.25em;z-index:30;pointer-events:none;}'
                 + '.trakt-badge{width:1.7em;height:1.7em;border-radius:50%;color:#fff;display:flex;align-items:center;justify-content:center;font-size:0.95em;line-height:1;font-weight:700;box-shadow:0 1px 3px rgba(0,0,0,.6);font-family:Arial,sans-serif;}'
                 + '.trakt-badge--completed{background:#43a047;}'
