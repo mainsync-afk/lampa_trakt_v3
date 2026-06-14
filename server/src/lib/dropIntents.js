@@ -5,7 +5,7 @@
 // просочившемуся чтению Trakt — иначе на лаге Trakt undrop «воскрешает» брошенное.
 // По истечении окна (или когда Trakt подтвердил оба хранилища) намерение снимается.
 
-const INTENT_TTL_MS = 180000; // 3 минуты — запас на пропагацию Trakt
+const INTENT_TTL_MS = 600000; // 10 минут — запас на пропагацию/лаг Trakt
 
 const _intents = new Map(); // key 'show:<tmdb>' → { dropped: boolean, expires: ms }
 

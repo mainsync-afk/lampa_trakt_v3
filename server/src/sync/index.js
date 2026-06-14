@@ -11,7 +11,7 @@ import { enrichCards } from './enrich.js';
 import { classifyAll } from './classifier.js';
 import { writeQueue } from '../lib/writeQueue.js';
 import { getDroppedListId } from '../lib/appConfig.js';
-import { getDropIntent, clearDropIntent } from '../lib/dropIntents.js';
+import { getDropIntent, setDropIntent, clearDropIntent } from '../lib/dropIntents.js';
 
 const POLL_INTERVAL_SEC = Number(process.env.SYNC_POLL_INTERVAL_SEC || 60);
 
@@ -137,6 +137,19 @@ function buildHiddenTmdbSet(hidden) {
     return set;
 }
 
+// Локально приводит карточку к dropped/не-dropped (для отображения), без записей.
+function applyDroppedLocal(c, dropListId, dropped) {
+    const has = Array.isArray(c.in_lists) && c.in_lists.includes(dropListId);
+    if (dropped && !has) {
+        c.in_lists = [...(c.in_lists || []), dropListId];
+        c.list_listed_at = { ...(c.list_listed_at || {}), [dropListId]: new Date().toISOString() };
+    } else if (!dropped && has) {
+        c.in_lists = (c.in_lists || []).filter(x => x !== dropListId);
+        if (c.list_listed_at) delete c.list_listed_at[dropListId];
+    }
+    if (dropped && c.in_watchlist) c.in_watchlist = false;
+}
+
 function reconcileDropped(cards, hidden, dropListId) {
     if (!dropListId) return;
     const hiddenSet = buildHiddenTmdbSet(hidden);
@@ -147,38 +160,32 @@ function reconcileDropped(cards, hidden, dropListId) {
         const inList = Array.isArray(c.in_lists) && c.in_lists.includes(dropListId);
         const inHidden = hiddenSet.has(Number(c.tmdb));
         const intent = getDropIntent(key);
-        const desired = (intent !== null) ? intent : (inList || inHidden);
 
+        if (intent !== null) {
+            // Действие уже инициировано (запись в writeQueue с ретраями). Здесь
+            // ТОЛЬКО держим отображаемое состояние, без повторных записей —
+            // иначе на лаге Trakt плодим дубли и грузим очередь.
+            applyDroppedLocal(c, dropListId, intent);
+            // Trakt подтвердил оба хранилища → намерение больше не нужно.
+            if (intent === inList && intent === inHidden) clearDropIntent(key);
+            continue;
+        }
+
+        // Намерения нет. Если хранилища согласованы — ничего не делаем.
+        if (inList === inHidden) continue;
+
+        // Реальная дивергенция (нативный drop/undrop в Trakt). Сводим ОДИН раз
+        // (источник правды — союз: drop выигрывает) и ставим намерение, чтобы
+        // следующие синки только держали состояние, не дёргая Trakt повторно.
+        const desired = inList || inHidden;
         const body = { shows: [{ ids: { tmdb: c.tmdb } }] };
-
-        // list ↔ desired (локально мутируем, чтобы dropped отразился сразу)
-        if (desired && !inList) {
-            c.in_lists = [...(c.in_lists || []), dropListId];
-            c.list_listed_at = { ...(c.list_listed_at || {}), [dropListId]: new Date().toISOString() };
-            try { writeQueue.enqueue({ kind: 'addToList', args: { listId: dropListId, body } }); } catch (_) {}
-        } else if (!desired && inList) {
-            c.in_lists = (c.in_lists || []).filter(x => x !== dropListId);
-            if (c.list_listed_at) delete c.list_listed_at[dropListId];
-            try { writeQueue.enqueue({ kind: 'removeFromList', args: { listId: dropListId, body } }); } catch (_) {}
-        }
-
-        // hidden ↔ desired
-        if (desired && !inHidden) {
-            try { writeQueue.enqueue({ kind: 'addToHidden', args: { body } }); } catch (_) {}
-        } else if (!desired && inHidden) {
-            try { writeQueue.enqueue({ kind: 'removeFromHidden', args: { body } }); } catch (_) {}
-        }
-
-        // Брошенное снимаем с Закладок (watchlist). Односторонне (undrop не возвращает).
-        if (desired && c.in_watchlist) {
-            c.in_watchlist = false;
-            try { writeQueue.enqueue({ kind: 'removeFromWatchlist', args: { body } }); } catch (_) {}
-        }
-
-        // намерение держим, пока Trakt не подтвердит ОБА хранилища
-        if (intent !== null && desired === inList && desired === inHidden) {
-            clearDropIntent(key);
-        }
+        if (desired && !inList)  { try { writeQueue.enqueue({ kind: 'addToList', args: { listId: dropListId, body } }); } catch (_) {} }
+        if (!desired && inList)  { try { writeQueue.enqueue({ kind: 'removeFromList', args: { listId: dropListId, body } }); } catch (_) {} }
+        if (desired && !inHidden){ try { writeQueue.enqueue({ kind: 'addToHidden', args: { body } }); } catch (_) {} }
+        if (!desired && inHidden){ try { writeQueue.enqueue({ kind: 'removeFromHidden', args: { body } }); } catch (_) {} }
+        if (desired && c.in_watchlist) { try { writeQueue.enqueue({ kind: 'removeFromWatchlist', args: { body } }); } catch (_) {} }
+        applyDroppedLocal(c, dropListId, desired);
+        setDropIntent(key, desired);
     }
 }
 
