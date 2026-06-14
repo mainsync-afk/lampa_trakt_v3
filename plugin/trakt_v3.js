@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.4.15';
+    var VERSION = '0.4.16';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -533,6 +533,12 @@
         return (c && (c.title || c.name || c.original_title || c.original_name)) || '';
     }
 
+    // Галочка перед названием (HTML в title). Активная — видимая, неактивная —
+    // скрытая (visibility:hidden) для выравнивания имён. Размер/отступ — в CSS.
+    function checkMark(checked) {
+        return '<span class="trakt-check' + (checked ? '' : ' trakt-check--off') + '">✓</span>';
+    }
+
     function reorderSidebarItems(items) {
         if (!Array.isArray(items)) return 0;
         var ourMap = buildOurLabelMap();
@@ -544,9 +550,7 @@
             // префикса и помечаем пункт — галочку рисует decorateOurItem в onRender.
             var meta = it ? ourMap[it.title] : null;
             if (meta) {
-                it.title = meta.base;
-                it.__trakt_v3_item = true;
-                it.__trakt_v3_checked = !!meta.active;
+                it.title = checkMark(meta.active) + meta.base; // галочка HTML-ом + чистое имя
                 ours.push(it);
             } else {
                 rest.push(it);
@@ -599,9 +603,7 @@
         var inject = [{ title: 'Trakt', separator: true, __trakt_v3_fav: true }];
         ourSidebarActions().forEach(function (act) {
             inject.push({
-                title: baseNameOf(act.action), // чистое имя; галочку рисует decorateOurItem
-                __trakt_v3_item: true,
-                __trakt_v3_checked: isCardActiveFor(card, act.action),
+                title: checkMark(isCardActiveFor(card, act.action)) + baseNameOf(act.action),
                 __trakt_v3_fav: true,
                 __trakt_v3_act: act,
                 onSelect: (function (a) { return function () { handleSidebarTap(a, card); }; })(act)
@@ -680,26 +682,15 @@
         } catch (_) {}
     }
 
-    // Декор пункта в onRender: разделитель → линия; наш пункт → галочка ✓ в начале
-    // названия (видимая для активного, скрытая для неактивного — ради выравнивания).
+    // Декор разделителя в onRender (если Lampa его вызывает): рисуем линию.
     function decorateOurItem(el, data) {
-        if (!data || !el) return;
-        if (data.__trakt_v3_divider) {
-            var node = el[0] || el;
-            if (node && node.style) {
-                node.style.borderTop = '0.08em solid rgba(255,255,255,0.25)';
-                node.style.margin = '0.35em 1.4em';
-                node.style.padding = '0';
-                node.style.minHeight = '0';
-            }
-            return;
-        }
-        if (data.__trakt_v3_item && el.find) {
-            if (el.find('.trakt-check').length) return; // уже добавлено
-            var $t = el.find('.selectbox__title');
-            if (!$t.length) $t = el.find('.selectbox-item__title');
-            if (!$t.length) $t = el;
-            $t.prepend('<span class="trakt-check' + (data.__trakt_v3_checked ? '' : ' trakt-check--off') + '">✓</span>');
+        if (!data || !el || !data.__trakt_v3_divider) return;
+        var node = el[0] || el;
+        if (node && node.style) {
+            node.style.borderTop = '0.08em solid rgba(255,255,255,0.25)';
+            node.style.margin = '0.35em 1.4em';
+            node.style.padding = '0';
+            node.style.minHeight = '0';
         }
     }
 
