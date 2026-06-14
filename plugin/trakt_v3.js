@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.4.18';
+    var VERSION = '0.4.19';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -536,10 +536,11 @@
     // Иконка-закладка перед названием (HTML в title): контур = не отмечено,
     // залитая цветом = отмечено. Размер/цвет/отступ — в CSS (.trakt-bm).
     function bookmarkIcon(checked) {
+        // Лента-вымпел с остриём вправо. Контур = не отмечено, залитая = отмечено.
         return '<span class="trakt-bm">'
              + '<svg viewBox="0 0 24 24" fill="' + (checked ? 'currentColor' : 'none')
              + '" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
-             + '<path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg></span>';
+             + '<path d="M4 3 H15 L21 12 L15 21 H4 Z"/></svg></span>';
     }
 
     function reorderSidebarItems(items) {
@@ -675,8 +676,8 @@
         if (window.__trakt_v3_sidebar_style) return;
         window.__trakt_v3_sidebar_style = true;
         try {
-            var css = '.trakt-bm{display:inline-block;vertical-align:middle;margin-right:0.6em;color:#5cba5c;}'
-                    + '.trakt-bm svg{height:1.7em;width:1.7em;display:block;}';
+            var css = '.trakt-bm{display:inline-block;vertical-align:middle;margin-right:0.3em;color:#5cba5c;}'
+                    + '.trakt-bm svg{height:2em;width:2em;display:block;}';
             var st = document.createElement('style');
             st.id = 'trakt_v3_sidebar_style';
             st.textContent = css;
