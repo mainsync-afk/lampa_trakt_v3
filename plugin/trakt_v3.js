@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.4.8';
+    var VERSION = '0.4.9';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -227,6 +227,8 @@
     var CUSTOM_LISTS = [];
     // Карточка над которой открыто sidebar-меню. Ставится в hover:long listener.
     var currentFocusedCard = null;
+    // Карточка открытой полной страницы (для меню «Избранное»). Ставится в full-хуке.
+    var currentFullCard = null;
     // Для дедупа регистрации custom lists
     var registeredListIds = {};
 
@@ -567,6 +569,52 @@
         Array.prototype.push.apply(items, [header].concat(ours, [divider], nativeRest));
     }
 
+    // Наши toggle-действия для меню «Избранное»: 2 фикс. (Закладки/Просмотрено) +
+    // кастомные списки. Индикаторы не нужны.
+    function ourSidebarActions() {
+        var acts = [];
+        SIDEBAR_FIXED.forEach(function (it) { if (it.isToggle) acts.push(it); });
+        CUSTOM_LISTS.forEach(function (l) {
+            acts.push({ action: 'list:' + l.id, name: l.title, isToggle: true, endpoint: '/api/tap/list/' + l.id });
+        });
+        return acts;
+    }
+
+    // Меню «Избранное» (из полной карточки) содержит только нативные категории —
+    // наших пунктов там нет. Инжектим их сверху, привязав к карточке полной
+    // страницы. Тап обрабатываем и через item.onSelect, и через обёртку
+    // params.onSelect (на случай разной диспетчеризации Lampa).
+    function injectFavoriteItems(params) {
+        var card = currentFullCard;
+        if (!card) { try { var a = Lampa.Activity.active(); card = a && (a.card_data || a.card || a.movie); } catch (_) {} }
+        if (!card) return;
+        if (params.items.some(function (it) { return it && it.__trakt_v3_fav; })) return; // уже вставлено
+
+        var inject = [{ title: 'Trakt', separator: true, __trakt_v3_fav: true }];
+        ourSidebarActions().forEach(function (act) {
+            inject.push({
+                title: baseNameOf(act.action),
+                checkbox: true,
+                checked: isCardActiveFor(card, act.action),
+                __trakt_v3_fav: true,
+                __trakt_v3_act: act,
+                onSelect: (function (a) { return function () { handleSidebarTap(a, card); }; })(act)
+            });
+        });
+        Array.prototype.unshift.apply(params.items, inject);
+
+        var prevOnSelect = params.onSelect;
+        params.onSelect = function (item) {
+            try {
+                if (item && item.__trakt_v3_fav && item.__trakt_v3_act) {
+                    handleSidebarTap(item.__trakt_v3_act, card);
+                    return;
+                }
+            } catch (_) {}
+            if (typeof prevOnSelect === 'function') return prevOnSelect.apply(this, arguments);
+        };
+    }
+
     function patchSidebarOrder() {
         if (!window.Lampa || !Lampa.Select || typeof Lampa.Select.show !== 'function') return;
         if (Lampa.Select.show.__trakt_v3_order_patched) return;
@@ -574,15 +622,12 @@
         var patched = function (params) {
             try {
                 if (params && Array.isArray(params.items)) {
-                    // DIAG v0.4.8: смотрим, как выглядит меню «Избранное» из полной карточки.
-                    try {
-                        var titles = params.items.map(function (it) {
-                            var m = (it && it.where !== undefined ? 'w' : '') + (it && it.checkbox !== undefined ? 'c' : '')
-                                  + (it && it.separator ? 's' : '') + (it && it.collect !== undefined ? 'C' : '');
-                            return '"' + (it && it.title) + '"' + (m ? '[' + m + ']' : '');
-                        });
-                        console.log('[trakt_v3] DIAG Select.show title="' + (params.title || '') + '" n=' + params.items.length + ' :: ' + titles.join(' ; '));
-                    } catch (_) {}
+                    // Меню «Избранное» из полной карточки — там наших пунктов нет,
+                    // инжектим. Иначе это контекст-меню карточки — переупорядочиваем.
+                    if (params.title === 'Избранное') {
+                        injectFavoriteItems(params);
+                        return orig.apply(this, arguments);
+                    }
                     reorderSidebarItems(params.items);
                     // Видимая линия-разделитель: пустой separator невидим, поэтому
                     // дорисовываем border через per-item onRender (el=DOM, data=item).
@@ -599,7 +644,6 @@
                                         node.style.padding = '0';
                                         node.style.minHeight = '0';
                                     }
-                                    try { console.log('[trakt_v3] divider onRender node=' + (!!node)); } catch (_) {}
                                 }
                             } catch (_) {}
                             if (prevOnRender) return prevOnRender.apply(this, arguments);
@@ -1571,6 +1615,7 @@
                     // method иногда есть только в top — гарантируем
                     if (!cardData.method && top.method) cardData.method = top.method;
                     if (!cardData.id && top.id) cardData.id = top.id;
+                    currentFullCard = cardData; // для меню «Избранное» из полной карточки
                     syncEpisodesForCard(cardData);
                 }
             }
