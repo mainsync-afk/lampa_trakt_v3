@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.4.13';
+    var VERSION = '0.4.14';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -1624,7 +1624,12 @@
                     // method иногда есть только в top — гарантируем
                     if (!cardData.method && top.method) cardData.method = top.method;
                     if (!cardData.id && top.id) cardData.id = top.id;
-                    currentFullCard = cardData; // для меню «Избранное» из полной карточки
+                    // Только ОСНОВНАЯ карточка (movie/tv + id) — не суб-секции build
+                    // (cast «Актеры»/recomend/similar), иначе в «Избранное» попадёт
+                    // чужой title/id.
+                    if ((cardData.method === 'movie' || cardData.method === 'tv') && cardData.id) {
+                        currentFullCard = cardData;
+                    }
                     syncEpisodesForCard(cardData);
                 }
             }
