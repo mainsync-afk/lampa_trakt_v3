@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.4.6';
+    var VERSION = '0.4.7';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -263,7 +263,9 @@
         var st = getCardState(object);
         if (!st) return false;
         if (action === 'watchlist')  return !!st.in_watchlist;
-        if (action === 'completed')  return !!st.in_watched;
+        // «Просмотрено» = шоу догнато (в ряду Просмотрено или Продолжение следует),
+        // а НЕ просто есть просмотренные эпизоды (Trakt держит частичные в watched).
+        if (action === 'completed')  return st.status === 'completed' || st.status === 'returning';
         if (action === 'continue')   return st.status === 'continue';
         if (action === 'returning')  return st.status === 'returning';
         if (action.indexOf('list:') === 0) {
@@ -314,9 +316,12 @@
             return st.in_watchlist;
         }
         if (action === 'completed') {
-            st.in_watched = !st.in_watched;
-            // status пересчитается на сервере — здесь не угадываем
-            return st.in_watched;
+            // Направление по «догнал ли»: догнато → снять, иначе → отметить всё.
+            var caughtUp = st.status === 'completed' || st.status === 'returning';
+            var nowWatched = !caughtUp;
+            st.in_watched = nowWatched;
+            st.status = nowWatched ? 'completed' : null; // classifier уточнит на синке
+            return nowWatched;
         }
         if (action.indexOf('list:') === 0) {
             var lid = Number(action.slice(5));
@@ -1523,9 +1528,10 @@
         var s = STATES_INDEX[k];
         if (action === 'watchlist') s.in_watchlist = !s.in_watchlist;
         else if (action === 'completed') {
-            s.in_watched = !s.in_watched;
-            // trakt_status пересчитается на сервере — обнулим до следующего fetch.
-            s.trakt_status = s.in_watched ? 'completed' : null;
+            // Направление по «догнал ли» (как в applyOptimisticUpdate/сервере).
+            var caughtUp = s.trakt_status === 'completed' || s.trakt_status === 'returning';
+            s.in_watched = !caughtUp;
+            s.trakt_status = !caughtUp ? 'completed' : null; // classifier уточнит
         }
         // Для list:N в STATES не храним (не отображаем как badge) — пропуск.
         refreshBadgesForTmdb(tmdb);

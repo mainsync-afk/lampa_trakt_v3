@@ -125,8 +125,48 @@ async function toggleBool(tmdb, type, field) {
 }
 
 export function toggleWatchlist(tmdb, type)  { return toggleBool(tmdb, type, 'in_watchlist'); }
-export function toggleWatched(tmdb, type)    { return toggleBool(tmdb, type, 'in_watched'); }
 export function toggleCollection(tmdb, type) { return toggleBool(tmdb, type, 'in_collection'); }
+
+// «Просмотрено» — направление по «догнал ли» (статус), а не по in_watched
+// (Trakt держит частично просмотренные сериалы в watched-списке). Если шоу в
+// «Просмотрено»/«Продолжение следует» → снять просмотр со всего; иначе → отметить
+// весь сериал просмотренным (classifier на синке распределит). Для фильмов это
+// эквивалентно прежнему toggle (status='completed' ⇔ in_watched).
+export async function toggleWatched(tmdb, type) {
+    const snap = getSnapshot();
+    if (!snap) throw new Error('no snapshot yet');
+
+    const card = ensureCardExists(snap, type, tmdb);
+    const prevWatched = !!card.in_watched;
+    const prevStatus = card.trakt_status || null;
+    const caughtUp = prevStatus === 'completed' || prevStatus === 'returning';
+    const next = !caughtUp; // не догнал → отметить всё; догнал → снять
+
+    card.in_watched = next;
+    card.trakt_status = next ? 'completed' : null; // оптимистично, classifier уточнит
+    if (next === true) {
+        card.last_watched_at = new Date().toISOString();
+        clearProgressForWatched(snap, type, tmdb);
+    }
+    touchMeta(snap);
+    await repo.writeSnapshot(snap);
+
+    writeQueue.enqueue({
+        kind: next ? 'addToHistory' : 'removeFromHistory',
+        args: { body: payload(type, tmdb) },
+        rollback: async () => {
+            const s = getSnapshot();
+            if (!s || !s.cards) return;
+            const c = s.cards[key(type, tmdb)];
+            if (!c) return;
+            c.in_watched = prevWatched;
+            c.trakt_status = prevStatus;
+            touchMeta(s);
+            await repo.writeSnapshot(s);
+        }
+    });
+    return { state: cardState(card), action: next ? 'added' : 'removed' };
+}
 
 export async function toggleListMembership(tmdb, type, listId) {
     const snap = getSnapshot();
