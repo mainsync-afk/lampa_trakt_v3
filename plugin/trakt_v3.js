@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.5.2';
+    var VERSION = '0.5.3';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -1206,16 +1206,16 @@
                 + '.trakt-plate__row{display:flex;align-items:center;justify-content:space-between;gap:0.4em;}'
                 + '.trakt-pill{display:inline-flex;align-items:center;gap:0.25em;color:#fff;font-size:0.8em;line-height:1;padding:0.25em 0.55em;border-radius:1em;white-space:nowrap;}'
                 + '.trakt-pill svg{width:0.95em;height:0.95em;display:block;fill:none;stroke:#fff;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round;}'
-                + '.trakt-pill--watch{background:#185FA5;}'
-                + '.trakt-pill--wait{background:#BA7517;}'
+                + '.trakt-pill--watch{background:#BA7517;}'
+                + '.trakt-pill--wait{background:#185FA5;}'
                 + '.trakt-pill--done{background:#3B6D11;}'
                 + '.trakt-pill--drop{background:#5F5E5A;}'
                 + '.trakt-pill--watch svg{fill:#fff;stroke:none;}'
                 + '.trakt-count{font-size:0.85em;line-height:1;color:rgba(255,255,255,.9);white-space:nowrap;}'
                 + '.trakt-bar{margin-top:0.35em;height:0.22em;background:rgba(255,255,255,.18);border-radius:0.2em;overflow:hidden;}'
                 + '.trakt-bar__fill{height:100%;border-radius:0.2em;}'
-                + '.trakt-bar__fill--watch{background:#378ADD;}'
-                + '.trakt-bar__fill--wait{background:#BA7517;}'
+                + '.trakt-bar__fill--watch{background:#BA7517;}'
+                + '.trakt-bar__fill--wait{background:#378ADD;}'
                 + '.trakt-bar__fill--done{background:#5FA82A;}'
                 + '.trakt-bar__fill--drop{background:#888780;}'
                 // Папка-карточка: ::before рисует gradient + форму папки (clip-path)
@@ -1279,25 +1279,27 @@
     //   done  (completed/in_watched): без счётчика и бара
     //   movie без статуса с paused 3..79%: только бар синий по позиции
     // «+ожидается» (unaired) не показываем — нет данных о полном числе эпизодов.
-    function buildCardOverlayHtml(state, type) {
-        if (!state) return '';
+    function buildCardOverlayHtml(state, type, fallbackRating) {
         var parts = '';
 
-        // левый верх — колонка: рейтинг + значок сериала (для shows)
+        // левый верх — колонка: рейтинг + значок сериала (для shows).
+        // Рисуется на ВСЕХ карточках, даже не-Trakt: рейтинг из state (Trakt)
+        // либо фолбэк из card_data (TMDB), тип — из meta.
+        var rating = (state && state.rating) || fallbackRating || null;
         var tl = '';
-        if (state.rating) {
-            tl += '<div class="trakt-rating">' + ICON_STAR + '<span>' + formatRating(state.rating) + '</span></div>';
+        if (rating) {
+            tl += '<div class="trakt-rating">' + ICON_STAR + '<span>' + formatRating(rating) + '</span></div>';
         }
         if (type === 'show') {
             tl += '<div class="trakt-type">' + ICON_TV + '</div>';
         }
         if (tl) parts += '<div class="trakt-tl">' + tl + '</div>';
 
-        if (state.in_watchlist) {
+        if (state && state.in_watchlist) {
             parts += '<div class="trakt-bm">' + ICON_BOOKMARK + '</div>';
         }
 
-        var pill = statusPill(state);
+        var pill = state ? statusPill(state) : null;
         var pillCls = pill ? pill.cls : null;
         var countHtml = '';
         var barHtml = '';
@@ -1305,7 +1307,7 @@
         if (pillCls === 'done') {
             // просмотрено — полный бар (и для shows, и для фильмов)
             barHtml = '<div class="trakt-bar"><div class="trakt-bar__fill trakt-bar__fill--done" style="width:100%"></div></div>';
-        } else if (type === 'show' && state.progress && state.progress.aired > 0) {
+        } else if (type === 'show' && state && state.progress && state.progress.aired > 0) {
             var a = state.progress.aired;
             var c = Math.min(state.progress.completed || 0, a);
             if (pillCls === 'watch' || pillCls === 'drop') {
@@ -1316,10 +1318,11 @@
                 countHtml = '<span class="trakt-count">' + a + '/' + a + '</span>';
                 barHtml = '<div class="trakt-bar"><div class="trakt-bar__fill trakt-bar__fill--wait" style="width:100%"></div></div>';
             }
-        } else if (type === 'movie' && !pill && state.movie_progress && Number.isFinite(state.movie_progress.percent)) {
+        } else if (type === 'movie' && !pill && state && state.movie_progress && Number.isFinite(state.movie_progress.percent)) {
+            // фильм с сохранённым прогрессом (кросс-девайс resume) — бар «смотрю»
             var mp = Math.round(state.movie_progress.percent);
-            if (mp >= 3 && mp < 80) {
-                barHtml = '<div class="trakt-bar"><div class="trakt-bar__fill trakt-bar__fill--watch" style="width:' + mp + '%"></div></div>';
+            if (mp >= 1 && mp < 100) {
+                barHtml = '<div class="trakt-bar"><div class="trakt-bar__fill trakt-bar__fill--watch" style="width:' + Math.max(2, mp) + '%"></div></div>';
             }
         }
 
@@ -1369,12 +1372,17 @@
         // Удаляем старый overlay (re-render после optimistic update / повторной обработки).
         var prev = host.querySelector ? host.querySelector(':scope > [data-trakt-overlay]') : null;
         if (prev && prev.parentNode) prev.parentNode.removeChild(prev);
-        if (!state) return;
-        // Type для счётчика/бара берём по тому же признаку, что getCardMeta.
+        // Type для счётчика/бара/значка берём по тому же признаку, что getCardMeta.
         var meta = getCardMeta(cardEl);
         var type = meta ? meta.type : null;
+        // Фолбэк рейтинга для не-Trakt карточек — vote_average из card_data (TMDB).
+        var fallbackRating = null;
+        try {
+            var cd = cardEl.card_data;
+            if (cd && Number.isFinite(cd.vote_average) && cd.vote_average > 0) fallbackRating = cd.vote_average;
+        } catch (_) {}
 
-        var html = buildCardOverlayHtml(state, type);
+        var html = buildCardOverlayHtml(state, type, fallbackRating);
         if (!html) return;
         // Гарантируем relative у host (на случай если Lampa-стиль не задал).
         try {
