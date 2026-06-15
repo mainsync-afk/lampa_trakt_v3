@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.5.4';
+    var VERSION = '0.5.5';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -1214,7 +1214,7 @@
                 + '.trakt-pill--drop{background:#5F5E5A;}'
                 + '.trakt-pill--watch svg{fill:#fff;stroke:none;}'
                 + '.trakt-count{font-size:0.85em;line-height:1;color:rgba(255,255,255,.9);white-space:nowrap;}'
-                + '.trakt-bar{margin-top:0.35em;height:0.22em;background:rgba(255,255,255,.18);border-radius:0.2em;overflow:hidden;}'
+                + '.trakt-bar{margin-top:0.35em;height:0.32em;background:rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.55);border-radius:0.3em;overflow:hidden;box-sizing:border-box;}'
                 + '.trakt-bar__fill{height:100%;border-radius:0.2em;}'
                 + '.trakt-bar__fill--watch{background:#BA7517;}'
                 + '.trakt-bar__fill--wait{background:#378ADD;}'
