@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.5.1';
+    var VERSION = '0.5.2';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -1202,7 +1202,7 @@
                 + '.trakt-bm{position:absolute;top:0;right:0.7em;width:1.2em;height:1.8em;filter:drop-shadow(0 1px 2px rgba(0,0,0,.5));}'
                 + '.trakt-bm svg{width:100%;height:100%;display:block;}'
                 // нижняя плашка: статус-пилюля + счётчик + бар
-                + '.trakt-plate{position:absolute;left:0;right:0;bottom:0;padding:0.4em 0.45em 0.5em;background:rgba(0,0,0,.55);}'
+                + '.trakt-plate{position:absolute;left:0;right:0;bottom:0;padding:0.4em 0.45em 0.5em;background:rgba(0,0,0,.55);border-radius:0 0 var(--trakt-card-radius,0) var(--trakt-card-radius,0);}'
                 + '.trakt-plate__row{display:flex;align-items:center;justify-content:space-between;gap:0.4em;}'
                 + '.trakt-pill{display:inline-flex;align-items:center;gap:0.25em;color:#fff;font-size:0.8em;line-height:1;padding:0.25em 0.55em;border-radius:1em;white-space:nowrap;}'
                 + '.trakt-pill svg{width:0.95em;height:0.95em;display:block;fill:none;stroke:#fff;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round;}'
@@ -1382,6 +1382,16 @@
             if (cs && cs.position === 'static') host.style.position = 'relative';
         } catch (_) {}
         host.insertAdjacentHTML('beforeend', html);
+        // Скругляем нижние углы плашки под радиус постера (тема Lampa), иначе
+        // прямоугольная подложка торчит острыми углами за скруглённый постер.
+        try {
+            var ov = host.querySelector(':scope > [data-trakt-overlay]');
+            if (ov) {
+                var img = cardEl.querySelector ? cardEl.querySelector('.card__img') : null;
+                var br = img ? getComputedStyle(img).borderBottomLeftRadius : '';
+                if (br && br !== '0px') ov.style.setProperty('--trakt-card-radius', br);
+            }
+        } catch (_) {}
     }
 
     // Перерисовать badges на всех уже отрендеренных плитках с этим tmdb.
@@ -1406,7 +1416,16 @@
     function processCardEl(cardEl) {
         if (!cardEl) return;
         var d = cardEl.card_data;
-        if (d && d.is_trakt_folder) {
+        // Lampa вешает card_data чуть позже добавления ноды в DOM — даём один ретрай,
+        // иначе на чужих страницах overlay не появится (observer словил ноду рано).
+        if (!d) {
+            if (!cardEl.__trakt_v3_retry) {
+                cardEl.__trakt_v3_retry = 1;
+                setTimeout(function () { processCardEl(cardEl); }, 250);
+            }
+            return;
+        }
+        if (d.is_trakt_folder) {
             try {
                 cardEl.classList.add('trakt-folder-card');
                 cardEl.setAttribute('data-folder-kind', d.trakt_folder_kind || '');
@@ -1632,6 +1651,19 @@
         } catch (err) {
             try { console.warn('[trakt_v3] MutationObserver setup err', err); } catch (_) {}
         }
+
+        // На КАЖДУЮ смену активности (любая страница Lampa, не только наша) —
+        // догоняющий прогон после рендера: observer ловит ноды, но card_data
+        // и STATES могут быть не готовы в момент добавления.
+        try {
+            if (window.Lampa && Lampa.Listener) {
+                Lampa.Listener.follow('activity', function (e) {
+                    if (!e || e.type !== 'start') return;
+                    setTimeout(processAllCards, 200);
+                    setTimeout(processAllCards, 800);
+                });
+            }
+        } catch (_) {}
 
         // Initial pass — для карточек, отрисованных до установки наблюдателя.
         processAllCards();
