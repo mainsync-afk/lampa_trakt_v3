@@ -26,7 +26,9 @@ export default async function (app) {
                 trakt_status: isDropped(c) ? 'dropped' : (c.trakt_status || null),
                 in_watchlist: isDropped(c) ? false : !!c.in_watchlist,
                 in_watched: !!c.in_watched,
-                in_collection: !!c.in_collection
+                in_collection: !!c.in_collection,
+                // рейтинг для бейджа ★ на превью (карточный дизайн v2)
+                rating: Number.isFinite(c.vote_average) && c.vote_average > 0 ? c.vote_average : null
             };
             // Show progress: completed/aired (для in_progress).
             if (c.type === 'show' && c.progress

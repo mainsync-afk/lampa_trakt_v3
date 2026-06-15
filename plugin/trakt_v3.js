@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.4.22';
+    var VERSION = '0.5.0';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -1155,15 +1155,27 @@
     // «top-right свободен, потом будем думать»). Если визуально каша —
     // добавим .card__icons{display:none} в инжект.
     // ────────────────────────────────────────────────────────────────────
-    var BADGE_DEFS = [
-        // priority по визуальной значимости (сверху-вниз в стеке)
-        { key: 'returning',   symbol: 'N',  cls: 'returning',   test: function (s) { return s.trakt_status === 'returning'; } },
-        { key: 'in_progress', symbol: '▶', cls: 'in_progress', test: function (s) { return s.trakt_status === 'in_progress' || s.trakt_status === 'continue'; } },
-        { key: 'completed',   symbol: '✓', cls: 'completed',   test: function (s) { return s.trakt_status === 'completed' || (s.in_watched && !s.trakt_status); } },
-        { key: 'dropped',     symbol: '×', cls: 'dropped',     test: function (s) { return s.trakt_status === 'dropped'; } },
-        { key: 'watchlist',   symbol: '★', cls: 'watchlist',   test: function (s) { return !!s.in_watchlist; } },
-        { key: 'collection',  symbol: '▣', cls: 'collection',  test: function (s) { return !!s.in_collection; } }
-    ];
+    // Инлайн-SVG (Tabler-подобные) — не зависим от веб-шрифта на TV.
+    var ICON_STAR = '<svg viewBox="0 0 24 24"><path d="M12 2l3 6.5 7 .9-5.1 4.8 1.3 7-6.2-3.4-6.2 3.4 1.3-7-5.1-4.8 7-.9z"/></svg>';
+    var ICON_PLAY = '<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>';
+    var ICON_CLOCK = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg>';
+    var ICON_CHECK = '<svg viewBox="0 0 24 24"><path d="M5 12l5 5 9-11"/></svg>';
+    var ICON_X = '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+    var ICON_BOOKMARK = '<svg viewBox="0 0 14 22"><path d="M0 0 H14 V22 L7 16 L0 22 Z" fill="#D85A30"/></svg>';
+
+    // Статус-пилюля по trakt_status. Один статус на карточку.
+    function statusPill(state) {
+        var s = state.trakt_status;
+        if (s === 'dropped') return { cls: 'drop', label: 'Брошено', icon: ICON_X };
+        if (s === 'returning') return { cls: 'wait', label: 'Ждём', icon: ICON_CLOCK };
+        if (s === 'in_progress' || s === 'continue') return { cls: 'watch', label: 'Смотрю', icon: ICON_PLAY };
+        if (s === 'completed' || (state.in_watched && !s)) return { cls: 'done', label: 'Просмотрено', icon: ICON_CHECK };
+        return null;
+    }
+
+    function formatRating(r) {
+        return (Math.round(Number(r) * 10) / 10).toFixed(1);
+    }
 
     function ensureBadgesStyleInjected() {
         if (window.__trakt_v3_badges_style_injected) return;
@@ -1173,18 +1185,33 @@
                 // Прячем нативные иконки Lampa на превью (закладка/история и пр.) —
                 // у нас своё состояние через Trakt-бэйджи.
                 + '.card__icons{display:none !important;}'
-                + '.trakt-badges{position:absolute;top:0.4em;right:0.4em;display:flex;flex-direction:column;gap:0.25em;z-index:30;pointer-events:none;}'
-                + '.trakt-badge{width:1.7em;height:1.7em;border-radius:50%;color:#fff;display:flex;align-items:center;justify-content:center;font-size:0.95em;line-height:1;font-weight:700;box-shadow:0 1px 3px rgba(0,0,0,.6);font-family:Arial,sans-serif;}'
-                + '.trakt-badge--completed{background:#43a047;}'
-                + '.trakt-badge--in_progress{background:#1e88e5;}'
-                + '.trakt-badge--returning{background:#fb8c00;}'
-                + '.trakt-badge--watchlist{background:#fdd835;color:#222;}'
-                + '.trakt-badge--dropped{background:#757575;}'
-                + '.trakt-badge--collection{background:#8e24aa;}'
-                // B1.5: progress-bar внизу .card__view
-                + '.trakt-progress{position:absolute;left:0;right:0;bottom:0;height:4px;background:rgba(0,0,0,0.45);z-index:30;pointer-events:none;overflow:hidden;}'
-                + '.trakt-progress__fill{height:100%;background:#1e88e5;transition:width .2s ease;}'
-                + '.trakt-progress--returning .trakt-progress__fill{background:#fb8c00;}'
+                // красная плашка TV/тип Lampa — убираем (тип передаём счётчиком серий)
+                + '.card__type{display:none !important;}'
+                // ── Карточный дизайн v2 ──────────────────────────────────────
+                // overlay-контейнер во всю .card__view (дети — absolute от него)
+                + '.trakt-card-overlay{position:absolute;inset:0;z-index:30;pointer-events:none;}'
+                // рейтинг ★ — левый верх
+                + '.trakt-rating{position:absolute;top:0.4em;left:0.4em;display:inline-flex;align-items:center;gap:0.2em;background:rgba(0,0,0,.5);color:#fff;font-size:0.9em;line-height:1;padding:0.2em 0.45em;border-radius:0.35em;}'
+                + '.trakt-rating svg{width:0.95em;height:0.95em;display:block;fill:#FAC775;}'
+                // книжная закладка — правый верх (флажок)
+                + '.trakt-bm{position:absolute;top:0;right:0.7em;width:1.2em;height:1.8em;filter:drop-shadow(0 1px 2px rgba(0,0,0,.5));}'
+                + '.trakt-bm svg{width:100%;height:100%;display:block;}'
+                // нижняя плашка: статус-пилюля + счётчик + бар
+                + '.trakt-plate{position:absolute;left:0;right:0;bottom:0;padding:0.4em 0.45em 0.5em;background:rgba(0,0,0,.55);}'
+                + '.trakt-plate__row{display:flex;align-items:center;justify-content:space-between;gap:0.4em;}'
+                + '.trakt-pill{display:inline-flex;align-items:center;gap:0.25em;color:#fff;font-size:0.8em;line-height:1;padding:0.25em 0.55em;border-radius:1em;white-space:nowrap;}'
+                + '.trakt-pill svg{width:0.95em;height:0.95em;display:block;fill:none;stroke:#fff;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round;}'
+                + '.trakt-pill--watch{background:#185FA5;}'
+                + '.trakt-pill--wait{background:#BA7517;}'
+                + '.trakt-pill--done{background:#3B6D11;}'
+                + '.trakt-pill--drop{background:#5F5E5A;}'
+                + '.trakt-pill--watch svg{fill:#fff;stroke:none;}'
+                + '.trakt-count{font-size:0.85em;line-height:1;color:rgba(255,255,255,.9);white-space:nowrap;}'
+                + '.trakt-bar{margin-top:0.35em;height:0.22em;background:rgba(255,255,255,.18);border-radius:0.2em;overflow:hidden;}'
+                + '.trakt-bar__fill{height:100%;border-radius:0.2em;}'
+                + '.trakt-bar__fill--watch{background:#378ADD;}'
+                + '.trakt-bar__fill--wait{background:#BA7517;}'
+                + '.trakt-bar__fill--drop{background:#888780;}'
                 // Папка-карточка: ::before рисует gradient + форму папки (clip-path)
                 // + native border-radius из темы (передаётся runtime через
                 // --trakt-folder-radius из card__img). overflow:hidden НЕ ставим —
@@ -1236,54 +1263,62 @@
         } catch (_) {}
     }
 
-    // B1.5: progress-bar внизу превью.
-    // Возвращает {percent, variant} или null если бар показывать не надо.
-    //   variant: 'in_progress' (синий) | 'returning' (оранжевый)
-    // Логика visibility (согласовано с Eugene):
-    //   show: только если started и не completed/returning (бар несёт инфу)
-    //         completed = 0 → ничего; completed === aired → ничего (= returning или completed)
-    //   movie: только paused-position 3..79% (артефакт открытия / уже watched)
-    function computeProgressBar(state, type) {
-        if (!state) return null;
-        if (type === 'show') {
-            // Полагаемся ТОЛЬКО на trakt_status. in_watched часто true для continue
-            // (юзер смотрел всё, потом вышли новые эпизоды — classifier перевёл в continue).
-            if (state.trakt_status !== 'continue' && state.trakt_status !== 'in_progress') return null;
-            var p = state.progress;
-            if (!p || !p.aired) return null;
-            if (p.completed <= 0 || p.completed >= p.aired) return null;
-            var pct = Math.round((p.completed / p.aired) * 100);
-            return { percent: Math.max(2, Math.min(98, pct)), variant: 'in_progress' };
-        }
-        if (type === 'movie') {
-            if (state.in_watched) return null;
-            var mp = state.movie_progress;
-            if (!mp || !Number.isFinite(mp.percent)) return null;
-            if (mp.percent < 3 || mp.percent >= 80) return null;
-            return { percent: Math.round(mp.percent), variant: 'in_progress' };
-        }
-        return null;
-    }
-
-    function buildProgressBarHtml(bar) {
-        if (!bar) return '';
-        var vCls = bar.variant === 'returning' ? ' trakt-progress--returning' : '';
-        return '<div class="trakt-progress' + vCls + '" data-trakt-progress="1">'
-             + '<div class="trakt-progress__fill" style="width:' + bar.percent + '%"></div>'
-             + '</div>';
-    }
-
-    function buildBadgesHtml(state) {
+    // Карточный дизайн v2 — собирает весь overlay (рейтинг + закладка + плашка
+    // со статус-пилюлей, счётчиком серий и прогресс-баром).
+    //
+    // Счётчик/бар по статусу:
+    //   watch (in_progress/continue): completed/aired, бар синий по completed/aired
+    //   wait  (returning):            aired/aired,     бар охра 100%
+    //   drop  (dropped):              completed/aired, бар серый по completed/aired
+    //   done  (completed/in_watched): без счётчика и бара
+    //   movie без статуса с paused 3..79%: только бар синий по позиции
+    // «+ожидается» (unaired) не показываем — нет данных о полном числе эпизодов.
+    function buildCardOverlayHtml(state, type) {
         if (!state) return '';
-        var html = '';
-        for (var i = 0; i < BADGE_DEFS.length; i++) {
-            var d = BADGE_DEFS[i];
-            if (d.test(state)) {
-                html += '<span class="trakt-badge trakt-badge--' + d.cls + '">' + d.symbol + '</span>';
+        var parts = '';
+
+        if (state.rating) {
+            parts += '<div class="trakt-rating">' + ICON_STAR + '<span>' + formatRating(state.rating) + '</span></div>';
+        }
+        if (state.in_watchlist) {
+            parts += '<div class="trakt-bm">' + ICON_BOOKMARK + '</div>';
+        }
+
+        var pill = statusPill(state);
+        var pillCls = pill ? pill.cls : null;
+        var countHtml = '';
+        var barHtml = '';
+
+        if (type === 'show' && state.progress && state.progress.aired > 0) {
+            var a = state.progress.aired;
+            var c = Math.min(state.progress.completed || 0, a);
+            if (pillCls === 'watch' || pillCls === 'drop') {
+                var pct = Math.max(2, Math.min(100, Math.round(c / a * 100)));
+                countHtml = '<span class="trakt-count">' + c + '/' + a + '</span>';
+                barHtml = '<div class="trakt-bar"><div class="trakt-bar__fill trakt-bar__fill--' + pillCls + '" style="width:' + pct + '%"></div></div>';
+            } else if (pillCls === 'wait') {
+                countHtml = '<span class="trakt-count">' + a + '/' + a + '</span>';
+                barHtml = '<div class="trakt-bar"><div class="trakt-bar__fill trakt-bar__fill--wait" style="width:100%"></div></div>';
+            }
+        } else if (type === 'movie' && !pill && state.movie_progress && Number.isFinite(state.movie_progress.percent)) {
+            var mp = Math.round(state.movie_progress.percent);
+            if (mp >= 3 && mp < 80) {
+                barHtml = '<div class="trakt-bar"><div class="trakt-bar__fill trakt-bar__fill--watch" style="width:' + mp + '%"></div></div>';
             }
         }
-        if (!html) return '';
-        return '<div class="trakt-badges" data-trakt-badges="1">' + html + '</div>';
+
+        var plateInner = '';
+        if (pill || countHtml) {
+            plateInner += '<div class="trakt-plate__row">'
+                + (pill ? '<span class="trakt-pill trakt-pill--' + pill.cls + '">' + pill.icon + '<span>' + pill.label + '</span></span>' : '<span></span>')
+                + (countHtml || '<span></span>')
+                + '</div>';
+        }
+        plateInner += barHtml;
+        if (plateInner) parts += '<div class="trakt-plate">' + plateInner + '</div>';
+
+        if (!parts) return '';
+        return '<div class="trakt-card-overlay" data-trakt-overlay="1">' + parts + '</div>';
     }
 
     // Получить (tmdb, type) карточки. Канонический способ в Lampa — DOM-нода
@@ -1315,18 +1350,15 @@
         // у него уже position:relative.
         var host = (cardEl.querySelector ? cardEl.querySelector('.card__view') : null) || cardEl;
         if (!host) return;
-        // Удаляем старые оверлеи (re-render после optimistic update / повторной обработки).
-        var prevB = host.querySelector ? host.querySelector(':scope > [data-trakt-badges]') : null;
-        if (prevB && prevB.parentNode) prevB.parentNode.removeChild(prevB);
-        var prevP = host.querySelector ? host.querySelector(':scope > [data-trakt-progress]') : null;
-        if (prevP && prevP.parentNode) prevP.parentNode.removeChild(prevP);
+        // Удаляем старый overlay (re-render после optimistic update / повторной обработки).
+        var prev = host.querySelector ? host.querySelector(':scope > [data-trakt-overlay]') : null;
+        if (prev && prev.parentNode) prev.parentNode.removeChild(prev);
         if (!state) return;
-        // Type для progress-расчёта берём по тому же признаку, что getCardMeta.
+        // Type для счётчика/бара берём по тому же признаку, что getCardMeta.
         var meta = getCardMeta(cardEl);
         var type = meta ? meta.type : null;
-        var bar = computeProgressBar(state, type);
 
-        var html = buildBadgesHtml(state) + buildProgressBarHtml(bar);
+        var html = buildCardOverlayHtml(state, type);
         if (!html) return;
         // Гарантируем relative у host (на случай если Lampa-стиль не задал).
         try {
@@ -2301,7 +2333,7 @@
                 get CARDS_INDEX() { return CARDS_INDEX; },
                 processAllCards: processAllCards,
                 fetchCardStates: fetchCardStates,
-                computeProgressBar: computeProgressBar,
+                buildCardOverlayHtml: buildCardOverlayHtml,
                 lookupStateByCardEl: lookupStateByCardEl
             };
         } catch (_) {}
