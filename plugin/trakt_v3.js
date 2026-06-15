@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.5.3';
+    var VERSION = '0.5.4';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -1189,6 +1189,8 @@
                 // красная плашка TV/тип Lampa + нативный рейтинг — убираем (рисуем свои)
                 + '.card__type{display:none !important;}'
                 + '.card__vote{display:none !important;}'
+                // нативный «Просмотрено N м.» + его прогресс-линия — рисуем свой бар
+                + '.card-watched{display:none !important;}'
                 // ── Карточный дизайн v2 ──────────────────────────────────────
                 // overlay-контейнер во всю .card__view (дети — absolute от него)
                 + '.trakt-card-overlay{position:absolute;inset:0;z-index:30;pointer-events:none;}'
@@ -1305,8 +1307,13 @@
         var barHtml = '';
 
         if (pillCls === 'done') {
-            // просмотрено — полный бар (и для shows, и для фильмов)
+            // просмотрено — полный бар (shows и фильмы); для сериалов ещё счётчик X/X
             barHtml = '<div class="trakt-bar"><div class="trakt-bar__fill trakt-bar__fill--done" style="width:100%"></div></div>';
+            if (type === 'show' && state.progress && state.progress.aired > 0) {
+                var ad = state.progress.aired;
+                var cd2 = Math.min(state.progress.completed || 0, ad);
+                countHtml = '<span class="trakt-count">' + cd2 + '/' + ad + '</span>';
+            }
         } else if (type === 'show' && state && state.progress && state.progress.aired > 0) {
             var a = state.progress.aired;
             var c = Math.min(state.progress.completed || 0, a);
@@ -1318,11 +1325,13 @@
                 countHtml = '<span class="trakt-count">' + a + '/' + a + '</span>';
                 barHtml = '<div class="trakt-bar"><div class="trakt-bar__fill trakt-bar__fill--wait" style="width:100%"></div></div>';
             }
-        } else if (type === 'movie' && !pill && state && state.movie_progress && Number.isFinite(state.movie_progress.percent)) {
-            // фильм с сохранённым прогрессом (кросс-девайс resume) — бар «смотрю»
+        } else if (type === 'movie' && state && state.movie_progress && Number.isFinite(state.movie_progress.percent) && (!pill || pillCls === 'drop')) {
+            // фильм с сохранённым прогрессом (кросс-девайс resume): не-Trakt/в процессе → «смотрю»,
+            // брошенный фильм → серый бар (статус-пилюля «Брошено» остаётся).
             var mp = Math.round(state.movie_progress.percent);
             if (mp >= 1 && mp < 100) {
-                barHtml = '<div class="trakt-bar"><div class="trakt-bar__fill trakt-bar__fill--watch" style="width:' + Math.max(2, mp) + '%"></div></div>';
+                var mcls = pillCls === 'drop' ? 'drop' : 'watch';
+                barHtml = '<div class="trakt-bar"><div class="trakt-bar__fill trakt-bar__fill--' + mcls + '" style="width:' + Math.max(2, mp) + '%"></div></div>';
             }
         }
 
