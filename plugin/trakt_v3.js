@@ -17,7 +17,7 @@
 (function () {
     'use strict';
 
-    var VERSION = '0.5.0';
+    var VERSION = '0.5.1';
     try { console.log('[trakt_v3] file loaded, version ' + VERSION); } catch (_) {}
 
     // ────────────────────────────────────────────────────────────────────
@@ -1161,6 +1161,7 @@
     var ICON_CLOCK = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg>';
     var ICON_CHECK = '<svg viewBox="0 0 24 24"><path d="M5 12l5 5 9-11"/></svg>';
     var ICON_X = '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+    var ICON_TV = '<svg viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M16 3l-4 4-4-4"/></svg>';
     var ICON_BOOKMARK = '<svg viewBox="0 0 14 22"><path d="M0 0 H14 V22 L7 16 L0 22 Z" fill="#D85A30"/></svg>';
 
     // Статус-пилюля по trakt_status. Один статус на карточку.
@@ -1185,14 +1186,18 @@
                 // Прячем нативные иконки Lampa на превью (закладка/история и пр.) —
                 // у нас своё состояние через Trakt-бэйджи.
                 + '.card__icons{display:none !important;}'
-                // красная плашка TV/тип Lampa — убираем (тип передаём счётчиком серий)
+                // красная плашка TV/тип Lampa + нативный рейтинг — убираем (рисуем свои)
                 + '.card__type{display:none !important;}'
+                + '.card__vote{display:none !important;}'
                 // ── Карточный дизайн v2 ──────────────────────────────────────
                 // overlay-контейнер во всю .card__view (дети — absolute от него)
                 + '.trakt-card-overlay{position:absolute;inset:0;z-index:30;pointer-events:none;}'
-                // рейтинг ★ — левый верх
-                + '.trakt-rating{position:absolute;top:0.4em;left:0.4em;display:inline-flex;align-items:center;gap:0.2em;background:rgba(0,0,0,.5);color:#fff;font-size:0.9em;line-height:1;padding:0.2em 0.45em;border-radius:0.35em;}'
+                // левый верх — колонка: рейтинг ★ + значок типа (сериал)
+                + '.trakt-tl{position:absolute;top:0.4em;left:0.4em;display:flex;flex-direction:column;gap:0.25em;align-items:flex-start;}'
+                + '.trakt-rating{display:inline-flex;align-items:center;gap:0.2em;background:rgba(0,0,0,.5);color:#fff;font-size:0.9em;line-height:1;padding:0.2em 0.45em;border-radius:0.35em;}'
                 + '.trakt-rating svg{width:0.95em;height:0.95em;display:block;fill:#FAC775;}'
+                + '.trakt-type{display:inline-flex;align-items:center;justify-content:center;background:rgba(0,0,0,.5);color:#fff;padding:0.2em 0.3em;border-radius:0.35em;}'
+                + '.trakt-type svg{width:1.05em;height:1.05em;display:block;fill:none;stroke:#fff;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;}'
                 // книжная закладка — правый верх (флажок)
                 + '.trakt-bm{position:absolute;top:0;right:0.7em;width:1.2em;height:1.8em;filter:drop-shadow(0 1px 2px rgba(0,0,0,.5));}'
                 + '.trakt-bm svg{width:100%;height:100%;display:block;}'
@@ -1211,6 +1216,7 @@
                 + '.trakt-bar__fill{height:100%;border-radius:0.2em;}'
                 + '.trakt-bar__fill--watch{background:#378ADD;}'
                 + '.trakt-bar__fill--wait{background:#BA7517;}'
+                + '.trakt-bar__fill--done{background:#5FA82A;}'
                 + '.trakt-bar__fill--drop{background:#888780;}'
                 // Папка-карточка: ::before рисует gradient + форму папки (clip-path)
                 // + native border-radius из темы (передаётся runtime через
@@ -1277,9 +1283,16 @@
         if (!state) return '';
         var parts = '';
 
+        // левый верх — колонка: рейтинг + значок сериала (для shows)
+        var tl = '';
         if (state.rating) {
-            parts += '<div class="trakt-rating">' + ICON_STAR + '<span>' + formatRating(state.rating) + '</span></div>';
+            tl += '<div class="trakt-rating">' + ICON_STAR + '<span>' + formatRating(state.rating) + '</span></div>';
         }
+        if (type === 'show') {
+            tl += '<div class="trakt-type">' + ICON_TV + '</div>';
+        }
+        if (tl) parts += '<div class="trakt-tl">' + tl + '</div>';
+
         if (state.in_watchlist) {
             parts += '<div class="trakt-bm">' + ICON_BOOKMARK + '</div>';
         }
@@ -1289,7 +1302,10 @@
         var countHtml = '';
         var barHtml = '';
 
-        if (type === 'show' && state.progress && state.progress.aired > 0) {
+        if (pillCls === 'done') {
+            // просмотрено — полный бар (и для shows, и для фильмов)
+            barHtml = '<div class="trakt-bar"><div class="trakt-bar__fill trakt-bar__fill--done" style="width:100%"></div></div>';
+        } else if (type === 'show' && state.progress && state.progress.aired > 0) {
             var a = state.progress.aired;
             var c = Math.min(state.progress.completed || 0, a);
             if (pillCls === 'watch' || pillCls === 'drop') {
